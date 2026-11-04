@@ -1,0 +1,17 @@
+[package]
+name = "carimbar"
+description = "Fachada pública: Emissor, orquestração, idempotência e journal local"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+carimbar-types.workspace = true
+
+[dev-dependencies]
+
+[lints]
+workspace = true
