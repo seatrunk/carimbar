@@ -1,0 +1,38 @@
+# cargo-deny: licenças, advisories, bans e fontes. `cargo deny check`.
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+unused-allowed-license = "allow"
+# Compatíveis com Apache-2.0 e com o AGPL-3.0 da fase 2.
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "MIT",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Zlib",
+  "CC0-1.0",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = [
+  # D2/D3: sem OpenSSL no grafo padrão (rustls e p12-keystore).
+  { crate = "openssl-sys", reason = "rustls é o padrão (D3); openssl só atrás de feature, com exceção explícita" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

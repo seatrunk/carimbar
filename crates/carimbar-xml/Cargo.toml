@@ -1,0 +1,18 @@
+[package]
+name = "carimbar-xml"
+description = "Escrita e leitura de XML fiscal (quick-xml/roxmltree), C14N 1"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+carimbar-types.workspace = true
+
+[dev-dependencies]
+sha2.workspace = true
+
+[lints]
+workspace = true

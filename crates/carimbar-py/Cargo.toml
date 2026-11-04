@@ -1,0 +1,25 @@
+[package]
+name = "carimbar-py"
+description = "Binding Python do carimbar (PyO3, abi3)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+name = "_carimbar"
+crate-type = ["cdylib"]
+# Testado via pytest sobre o wheel (etapa 10), não via `cargo test`.
+test = false
+doctest = false
+
+[dependencies]
+carimbar-types.workspace = true
+pyo3 = { workspace = true, features = ["extension-module"] }
+
+# Sem `[lints] workspace = true`: as macros do PyO3 geram `unsafe`, então
+# `unsafe_code = "forbid"` não cabe aqui. O código escrito à mão continua sem unsafe.
+[lints.clippy]
+all = { level = "warn", priority = -1 }
