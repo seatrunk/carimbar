@@ -36,7 +36,8 @@ head -c 4096 /dev/urandom >"$tmp/aleatorio.bin"
 openssl x509 -in "$tmp/c.pem" -outform DER -out "$tmp/cert.der" # SEQUENCE sem version 3
 printf '\x30\x82\x01\x00\x02\x01\x03\x30\x00' >"$tmp/quase.bin"   # sem OID pkcs7-data
 printf 'texto qualquer\n' >"$tmp/texto.txt"
-printf '%s\n' "-----BEGIN PRIVATE KEY-----" >"$tmp/pem.txt"
+# Marcador montado em partes para este arquivo não casar com o próprio check.
+printf -- '-----%s %s-----\n' BEGIN 'PRIVATE KEY' >"$tmp/pem.txt"
 
 caso "p12 renomeado .bin"            1 "$tmp/sintetico.p12" dado.bin
 caso "p12 renomeado .txt"            1 "$tmp/sintetico.p12" notas.txt
