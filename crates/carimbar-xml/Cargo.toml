@@ -1,12 +1,18 @@
 [package]
 name = "carimbar-xml"
-description = "Escrita e leitura de XML fiscal (quick-xml/roxmltree), C14N 1"
+description = "Escrita e leitura de XML fiscal com C14N 1.0 própria e validação XSD (carimbar)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-publish.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/carimbar-xml"
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+# O teste de SHA lê ../../schemas e não vai no pacote; nenhum XSD é empacotado.
+include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
 carimbar-types.workspace = true

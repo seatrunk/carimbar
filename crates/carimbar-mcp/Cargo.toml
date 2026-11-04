@@ -1,12 +1,17 @@
 [package]
 name = "carimbar-mcp"
-description = "Servidor MCP stdio do carimbar"
+description = "Servidor MCP stdio do carimbar para agentes de IA"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-publish.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/carimbar-mcp"
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
 carimbar.workspace = true

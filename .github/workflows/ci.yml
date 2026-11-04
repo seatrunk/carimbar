@@ -78,3 +78,11 @@ jobs:
         run: |
           pip install crates/carimbar-py/dist/*.whl
           python -c "import carimbar as c; assert c.validar_cnpj('00.000.001/0001-36'); assert not c.validar_cnpj('00000001000137'); print('ok', c.__version__)"
+
+  package:
+    # Garante que o workspace continua publicável (sem enviar nada).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo publish --workspace --locked --dry-run

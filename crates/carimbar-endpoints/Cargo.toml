@@ -1,12 +1,17 @@
 [package]
 name = "carimbar-endpoints"
-description = "Tabela UF × modelo × ambiente × serviço → URL, versionada como dado com data de verificação"
+description = "Tabela de endpoints NF-e e NFS-e por UF, modelo e ambiente (carimbar)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-publish.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/carimbar-endpoints"
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
 carimbar-types.workspace = true

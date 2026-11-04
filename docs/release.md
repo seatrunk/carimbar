@@ -1,26 +1,65 @@
 # Release
 
 `.github/workflows/release.yml` roda só em push de tag `v*` ou manualmente
-(`workflow_dispatch`). Nada roda em branch nem em PR. Hoje nada está publicado.
+(`workflow_dispatch`). Nada roda em branch nem em PR. Publicar é irreversível:
+crates.io e PyPI não apagam versões (no máximo yank).
 
-## O que configurar antes do primeiro release
+## Jobs
 
-1. **PyPI, trusted publisher (OIDC).** Em https://pypi.org/manage/account/publishing/
-   (ou no projeto, se o nome já tiver sido reservado), adicionar um publisher GitHub:
-   - Owner: `seatrunk`
-   - Repository: `carimbar`
-   - Workflow: `release.yml`
-   - Environment: `pypi`
-   Não há token: o job `pypi` pede um id-token ao GitHub (`id-token: write`, só nesse job).
-2. **Environments no GitHub** (Settings → Environments):
-   - `pypi`: revisor obrigatório (Ricardo) e, de preferência, restrição a tags `v*`.
-   - `crates-io`: idem, quando o job for ativado.
-3. **crates.io (desativado, `if: false`).** Criar a conta, decidir entre token
-   (`CARGO_REGISTRY_TOKEN` como secret do environment `crates-io`) e trusted publishing,
-   trocar `publish = false` no `Cargo.toml` e remover o `if: false`.
+| Job | Depende de | O que faz |
+|---|---|---|
+| `verificar` | — | falha se a ref não for a tag `v<versão do workspace>`; fmt, clippy `-D warnings`, testes, check de certificados |
+| `wheels`, `sdist` | `verificar` | maturin (abi3): Linux x86_64/aarch64, musllinux, macOS universal2, Windows x64 + sdist |
+| `pypi` | `wheels`, `sdist` | trusted publishing (OIDC), environment `pypi` |
+| `crates-io` | `verificar` | `cargo publish --workspace --locked` com `CARGO_REGISTRY_TOKEN`, environment `crates-io` |
 
-## Publicar
+Os environments `pypi` e `crates-io` exigem aprovação do seatrunk e aceitam só tags `v*`.
 
-1. Atualizar `version` em `[workspace.package]` e criar a tag `vX.Y.Z` no commit da `main`.
-2. Os jobs `wheels` (abi3: Linux x86_64/aarch64, musllinux, macOS universal2, Windows x64)
-   e `sdist` rodam; o `pypi` espera a aprovação no environment e publica.
+## Crates publicados
+
+Todos os do workspace, exceto `carimbar-py` (`publish = false`, vai pelo PyPI como
+`carimbar`). Ordem topológica calculada pelo `cargo publish --workspace` (Cargo ≥ 1.90),
+que espera o índice entre um crate e outro. Pacotes sem XSD nem testes de integração.
+
+## Primeira publicação (0.0.1)
+
+1. Conferir que a `main` está verde no CI e que `version` em `[workspace.package]`
+   é a desejada (hoje `0.0.1`). Versão de `pyproject` sai da mesma fonte.
+2. Criar e enviar a tag no commit da `main`:
+   `git tag -a v0.0.1 -m "carimbar 0.0.1" && git push origin v0.0.1`.
+3. Em Actions → Release, aprovar os deploys `crates-io` e `pypi` quando pedidos
+   (só depois de `verificar` passar).
+4. Conferir https://crates.io/crates/carimbar e https://pypi.org/p/carimbar.
+
+Se o `crates-io` falhar no meio, os crates já enviados ficam publicados. Corrigir a
+causa e publicar o resto à mão, na ordem, com `cargo publish -p <crate> --locked`
+(o token publish-new ainda vale para nomes novos), ou subir uma versão nova.
+
+## Token publish-new
+
+O `CARGO_REGISTRY_TOKEN` atual tem escopo **publish-new** para `carimbar*` e validade
+curta: serve só para criar os crates. Versões seguintes precisam de trusted
+publishing (abaixo) ou de outro token com `publish-update`.
+
+## Depois da primeira publicação
+
+1. Em cada crate no crates.io (Settings → Trusted Publishing), adicionar o publisher
+   GitHub: repo `seatrunk/carimbar`, workflow `release.yml`, environment `crates-io`.
+2. Trocar o job `crates-io` para OIDC:
+   ```yaml
+   permissions:
+     id-token: write
+   steps:
+     - uses: actions/checkout@v5
+     - uses: rust-lang/crates-io-auth-action@v1
+       id: auth
+     - run: cargo publish --workspace --locked
+       env:
+         CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+   ```
+3. Revogar o token publish-new no crates.io e apagar o secret do environment.
+
+## PyPI
+
+Trusted publisher já cadastrado: owner `seatrunk`, repo `carimbar`, workflow
+`release.yml`, environment `pypi`. Não há token.
