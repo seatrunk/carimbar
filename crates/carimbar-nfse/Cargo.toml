@@ -1,12 +1,17 @@
 [package]
 name = "carimbar-nfse"
-description = "DPS v1"
+description = "DPS e cliente Sefin/ADN da NFS-e Nacional (carimbar)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-publish.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/carimbar-nfse"
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
 carimbar-types.workspace = true

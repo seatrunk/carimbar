@@ -1,12 +1,17 @@
 [package]
 name = "carimbar-vault"
-description = "Cofre multiempresa: envelope encryption (KEK → DEK por empresa, AES-256-GCM), SQLite com KMS opcional (D5) e auditoria encadeada por hash"
+description = "Cofre multiempresa de certificados A1 com envelope encryption (carimbar)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-publish.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/carimbar-vault"
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
 carimbar-types.workspace = true

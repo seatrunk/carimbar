@@ -1,12 +1,17 @@
 [package]
 name = "carimbar-cert"
-description = "Leitura de PKCS#12 (p12-keystore, D2): cadeia X"
+description = "Leitura de certificados A1 PKCS#12 ICP-Brasil (carimbar)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-publish.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/carimbar-cert"
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
 carimbar-types.workspace = true

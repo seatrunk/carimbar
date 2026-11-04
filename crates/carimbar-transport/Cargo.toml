@@ -1,12 +1,17 @@
 [package]
 name = "carimbar-transport"
-description = "Cliente HTTP mTLS (rustls com cadeia ICP-Brasil, D3), envelope SOAP 1"
+description = "Transporte mTLS (rustls) SOAP e JSON para SEFAZ e Sefin (carimbar)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-publish.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/carimbar-transport"
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
 carimbar-types.workspace = true

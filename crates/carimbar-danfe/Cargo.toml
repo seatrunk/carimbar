@@ -1,12 +1,17 @@
 [package]
 name = "carimbar-danfe"
-description = "DANFE (MOC Anexo II) e DANFSe (NT 008) em PDF com typst (D4), a partir só do XML autorizado"
+description = "DANFE e DANFSe em PDF a partir do XML autorizado (carimbar)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-publish.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/carimbar-danfe"
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
 carimbar-types.workspace = true
