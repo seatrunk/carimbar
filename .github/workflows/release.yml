@@ -6,6 +6,12 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    # Recuperação de uma release que parou no meio (ex.: 429 do crates.io):
+    # roda de novo a partir da tag já existente, sem criar tag nova.
+    inputs:
+      tag:
+        description: "Tag já existente a (re)publicar, ex.: v0.0.1"
+        required: true
 
 permissions:
   contents: read
@@ -19,15 +25,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - name: Tag vX.Y.Z bate com a versão do workspace
         env:
-          REF_TYPE: ${{ github.ref_type }}
-          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ inputs.tag && 'tag' || github.ref_type }}
+          REF_NAME: ${{ inputs.tag || github.ref_name }}
         run: |
           versao=$(cargo metadata --no-deps --format-version 1 --locked \
             | python3 -c 'import json,sys; print({p["version"] for p in json.load(sys.stdin)["packages"]}.pop())')
           echo "versão do workspace: $versao; ref: $REF_TYPE $REF_NAME"
-          if [[ "$REF_TYPE" != tag || "$REF_NAME" != "v$versao" ]]; then
+          if [[ "$REF_TYPE" != tag || "$REF_NAME" != "v$versao" ]] \
+             || ! git rev-parse -q --verify "refs/tags/$REF_NAME" >/dev/null; then
             echo "::error::release exige a tag v$versao (recebido: $REF_TYPE $REF_NAME)"
             exit 1
           fi
@@ -52,6 +61,8 @@ jobs:
           - { os: windows-latest, target: x64, manylinux: "" }
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: PyO3/maturin-action@v1
         with:
           working-directory: crates/carimbar-py
@@ -68,6 +79,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: PyO3/maturin-action@v1
         with:
           working-directory: crates/carimbar-py
@@ -103,12 +116,24 @@ jobs:
     needs: [verificar]
     runs-on: ubuntu-latest
     environment: crates-io
+    # Com o limite de crate novo (~1 a cada 10 min depois da rajada), 13 crates
+    # novos levam ~80 min.
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      # O script de publicação vem do commit do workflow (pode ser mais novo que a tag).
+      - uses: actions/checkout@v5
+        with:
+          path: .release-tools
+          sparse-checkout: scripts
+      - run: mv .release-tools "$RUNNER_TEMP/release-tools"
       - name: Dry-run do workspace
         run: cargo publish --workspace --locked --dry-run
-      - name: Publica o workspace em ordem topológica
+      - name: Publica o que falta, em ordem topológica
+        # Idempotente: pula crate já publicado e espera no 429. Ver scripts/publish-crates.sh.
         # O token só existe neste passo, via env; nunca é ecoado.
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --workspace --locked
+        run: "$RUNNER_TEMP/release-tools/scripts/publish-crates.sh"

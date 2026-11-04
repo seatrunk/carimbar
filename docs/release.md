@@ -63,3 +63,16 @@ publishing (abaixo) ou de outro token com `publish-update`.
 
 Trusted publisher já cadastrado: owner `seatrunk`, repo `carimbar`, workflow
 `release.yml`, environment `pypi`. Não há token.
+
+## Recuperação de release parada no meio
+
+Se o `crates-io` parar (ex.: 429 "too many new crates"), não crie tag nova.
+`scripts/publish-crates.sh` é idempotente: pula o que já está no índice e, no 429,
+espera o horário que o crates.io indica. Rode o Release de novo com
+`workflow_dispatch` a partir de `main` e `tag` = a tag existente (ex.: `v0.0.1`).
+Os environments `crates-io` e `pypi` só aceitam tags `v*`; para esse disparo o
+dono precisa liberar `main` temporariamente nas regras de deployment e remover
+depois. A aprovação manual continua valendo.
+
+Para ver o que falta sem publicar: `scripts/publish-crates.sh --dry-run`
+(com a tag em checkout).
