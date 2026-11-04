@@ -34,3 +34,12 @@ htmlcov/
 .idea/
 .vscode/
 .DS_Store
+*.pem
+*.key
+*.crt
+*.cer
+*.der
+*.jks
+*.keystore
+*.db
+*.sqlite
