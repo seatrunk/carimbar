@@ -1,6 +1,3 @@
-# PROPOSTO: mover para .github/workflows/ci.yml. O token usado pelo agente não tem
-# escopo `workflow`, então o GitHub recusou o push deste arquivo no caminho final.
-
 name: CI
 
 on:

@@ -10,6 +10,8 @@
 
 ## Antes do PR
 
+O CI (`.github/workflows/ci.yml`) roda os mesmos passos em todo PR.
+
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
