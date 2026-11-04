@@ -1,3 +1,6 @@
+# PROPOSTO: mover para .github/workflows/ci.yml. O token usado pelo agente não tem
+# escopo `workflow`, então o GitHub recusou o push deste arquivo no caminho final.
+
 name: CI
 
 on:
@@ -23,6 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - run: ./scripts/test-check-no-certs.sh
       - run: ./scripts/check-no-certs.sh
 
   fmt:

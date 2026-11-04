@@ -17,6 +17,7 @@ cargo test --workspace
 cargo deny check
 (cd crates/carimbar-py && maturin build)
 ./scripts/check-no-certs.sh
+./scripts/test-check-no-certs.sh
 ```
 
 Toolchain fixado em `rust-toolchain.toml`; MSRV declarado em `Cargo.toml` (`rust-version`).
