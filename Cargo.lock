@@ -244,6 +244,7 @@ name = "carimbar-endpoints"
 version = "0.0.2"
 dependencies = [
  "carimbar-types",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

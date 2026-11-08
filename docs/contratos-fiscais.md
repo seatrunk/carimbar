@@ -23,7 +23,7 @@ domínio conhece CLI, MCP ou Python.
 | `carimbar-cert` | PKCS#12 A1, cadeia X.509, validade, titular e chave privada protegida | Implementado (#8) |
 | `carimbar-dsig` | XMLDSig enveloped, assinatura e verificação | RSA-SHA256 padrão; NF-e/RSA-SHA1 via feature opcional (#9) |
 | `carimbar-transport` | HTTP mTLS, SOAP 1.2 e JSON, timeouts e classificação de falhas | Pendente (#10) |
-| `carimbar-endpoints` | Tabela UF × modelo × ambiente × serviço, versionada e datada | Pendente (#10) |
+| `carimbar-endpoints` | Tabela UF × modelo × ambiente × serviço, versionada e datada | Implementado (#10); URLs conferidas em 2026-11-08 |
 | `carimbar-vault` | Cofre multiempresa, envelope encryption e auditoria | Pendente (#12) |
 | `carimbar-nfse` | DPS, NFSe, eventos, ADN e parametrização municipal | Pendente (#11, #14) |
 | `carimbar-nfe` | NF-e 4.00 com IBS/CBS, eventos e contingência SVC | Pendente (#18) |
@@ -266,6 +266,25 @@ CNPJ do titular pelo OID ICP-Brasil `2.16.76.1.3.3` e valida o vínculo na abert
 - Chamadas governamentais ficam restritas a job manual com environment
   protegido (#21).
 
+## 6.1 Resolução de endpoints (#10)
+
+`carimbar-endpoints` resolve a URL localmente, sem rede e sem certificado. Cada
+resultado carrega versão do serviço, autorizador, fonte oficial e a data
+`VERIFICADO_EM` (`2026-11-08`).
+
+- **NF-e:** autorizador normal por UF; `SVC-AN`/`SVC-RS` mediante contingência
+  explícita; distribuição sempre no Ambiente Nacional (`www1`/`hom1`).
+- **NFS-e:** Sefin Nacional para emissão, consulta de NFS-e, eventos e DPS; ADN
+  para distribuição por NSU, eventos por chave e DANFSe.
+- **Combinações não publicadas** retornam erro explícito: consulta de cadastro
+  fora das UFs atendidas, contingência que não cobre a UF e serviço inexistente.
+- **Ambiente:** o `tpAmb` vem de `carimbar_types::Ambiente`; produção e
+  homologação usam hosts distintos e um teste garante que a URL de produção não
+  reaproveita host de homologação.
+- **Limite:** a tabela é dado, não homologação. Notas técnicas mudam URLs;
+  reconfira a fonte antes de emitir. Sefins municipais fora do padrão nacional
+  não são resolvidas.
+
 ## 7. Decisões em aberto
 
 | Tema | Pendência | Issue |
@@ -273,7 +292,7 @@ CNPJ do titular pelo OID ICP-Brasil `2.16.76.1.3.3` e valida o vínculo na abert
 | NFS-e produção | Baixar e validar o pacote de produção 2026-02-09 | #5 / #21 |
 | NF-e | Conferir NTs posteriores à v1.30 e decidir se há schema novo | #18 |
 | Certificados | Mapear OIDs ICP-Brasil de CNPJ e cadeia | #8 |
-| Endpoints | Confirmar URLs e versões por UF/ambiente | #10 |
+| Endpoints | Reconfirmar URLs antes de emitir; a tabela local tem fonte e data | #10 |
 | C14N | Validar vetores com `xmlsec1` e decidir se C14N 1.1 é necessária | #7 / #9 |
 | DANFE/DANFSe | Confirmar requisitos de leiaute e fonte de dados | #15 / #19 |
 | Vault | Definir formato do arquivo local e política de rotação de chave | #12 |
