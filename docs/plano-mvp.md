@@ -37,7 +37,7 @@ Critério do marco: Contratos e limites documentados; procedimento de release ve
 Implementar XML e leitura segura de A1; integrar XMLDSig depois que suas duas dependências estiverem prontas.
 
 - [x] [#7](https://github.com/seatrunk/carimbar/issues/7) — Implementar leitura, escrita, canonicalização e validação XSD de XML fiscal.
-- [ ] [#8](https://github.com/seatrunk/carimbar/issues/8) — Implementar leitura segura e validação de certificados A1 PKCS#12.
+- [x] [#8](https://github.com/seatrunk/carimbar/issues/8) — Implementar leitura segura e validação de certificados A1 PKCS#12.
 - [ ] [#9](https://github.com/seatrunk/carimbar/issues/9) — Implementar assinatura e verificação XMLDSig interoperáveis.
 
 Entrega parcial da #9: RSA-SHA256 com interoperabilidade local via `xmlsec1`.
