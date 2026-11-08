@@ -41,8 +41,10 @@ RSA-SHA256. O perfil RSA-SHA1 exigido pelo XSD de NF-e vendorizado está dispon�
 pela feature opcional `nfe-sha1`, com escolha explícita de perfil e backend OpenSSL.
 O build padrão continua sem OpenSSL. A tabela de endpoints por UF, modelo e
 ambiente está implementada com fonte e data de verificação (`carimbar-endpoints`).
-Transporte, cofre, emissão, PDFs, CLI e MCP ainda são stubs; **não há emissão
-funcional de notas fiscais**.
+O transporte HTTP/1.1 sobre mTLS com SOAP 1.2 e JSON está implementado
+(`carimbar-transport`), sem raízes embutidas e sem reenvio cego de emissão.
+Cofre, emissão, PDFs, CLI e MCP ainda são stubs; **não há emissão funcional de
+notas fiscais**.
 
 O [plano de implementação do MVP](docs/plano-mvp.md) organiza as etapas,
 dependências e critérios de conclusão, acompanhados pela

@@ -15,8 +15,11 @@ include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
 carimbar-types.workspace = true
-
-[dev-dependencies]
+carimbar-cert.workspace = true
+thiserror.workspace = true
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-pki-types = "1"
+zeroize = "1"
 
 [lints]
 workspace = true

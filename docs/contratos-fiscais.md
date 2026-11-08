@@ -22,7 +22,7 @@ domínio conhece CLI, MCP ou Python.
 | `carimbar-xml` | Leitura/escrita determinística, C14N 1.0 e validação XSD opcional | Em implementação (#7) |
 | `carimbar-cert` | PKCS#12 A1, cadeia X.509, validade, titular e chave privada protegida | Implementado (#8) |
 | `carimbar-dsig` | XMLDSig enveloped, assinatura e verificação | RSA-SHA256 padrão; NF-e/RSA-SHA1 via feature opcional (#9) |
-| `carimbar-transport` | HTTP mTLS, SOAP 1.2 e JSON, timeouts e classificação de falhas | Pendente (#10) |
+| `carimbar-transport` | HTTP mTLS, SOAP 1.2 e JSON, timeouts e classificação de falhas | Implementado (#10); sem raízes embutidas |
 | `carimbar-endpoints` | Tabela UF × modelo × ambiente × serviço, versionada e datada | Implementado (#10); URLs conferidas em 2026-11-08 |
 | `carimbar-vault` | Cofre multiempresa, envelope encryption e auditoria | Pendente (#12) |
 | `carimbar-nfse` | DPS, NFSe, eventos, ADN e parametrização municipal | Pendente (#11, #14) |
@@ -284,6 +284,39 @@ resultado carrega versão do serviço, autorizador, fonte oficial e a data
 - **Limite:** a tabela é dado, não homologação. Notas técnicas mudam URLs;
   reconfira a fonte antes de emitir. Sefins municipais fora do padrão nacional
   não são resolvidas.
+
+## 6.2 Transporte mTLS (#10)
+
+`carimbar-transport` executa a chamada HTTP sobre TLS mútuo, com a identidade
+A1 e as raízes de confiança fornecidas pelo chamador em DER. Nenhuma raiz é
+embutida no crate, então o build não carrega a cadeia ICP-Brasil por conta
+própria.
+
+- **Protocolo:** HTTP/1.1 mínimo e estrito, sem redirecionamento, sem proxy e
+  sem reuso de conexão (`Connection: close`). Respostas `chunked`,
+  `Content-Length` e leitura até o fim são suportadas.
+- **Limites:** 8 MiB de resposta por padrão, até 100 cabeçalhos e linha de
+  status/cabeçalho de 8 KiB. Corpo maior que o limite é recusado.
+- **SOAP:** `Requisicao::post_soap12` monta o `Envelope` SOAP 1.2 e envia a ação
+  no parâmetro `action` do `Content-Type`. Ação com aspa ou quebra de linha é
+  recusada.
+- **JSON:** `post_json` e `get_json` para Sefin/ADN, sem conversão de corpo: o
+  chamador entrega os bytes já serializados.
+- **Classificação de falhas:** `ErroEnvio::AntesDoEnvio` cobre URL, DNS, TCP,
+  handshake TLS e montagem do cabeçalho; `ErroEnvio::ResultadoDesconhecido`
+  cobre qualquer falha depois do início da escrita. Envio de emissão usa
+  `executar`, que nunca repete sozinho.
+- **Retry:** `executar_seguro` só deve ser usado em operações idempotentes;
+  repete falhas transitórias de `AntesDoEnvio` e respostas 429/5xx até o limite
+  de tentativas configurado.
+- **Teste:** a suíte de integração gera uma PKI sintética com `openssl` (duas
+  CAs, servidor e clientes), sobe um servidor TLS local e cobre mTLS, CA
+  desconhecida, identidade de cliente recusada, timeout, chunked, limite de
+  resposta, `HEAD`/204 e retry. Nenhuma conexão sai da máquina de teste.
+
+Limitações assumidas: sem proxy corporativo, sem OCSP/CRL e sem pin de
+certificado no MVP; a resolução DNS usa o resolvedor do sistema e não tem
+timeout próprio.
 
 ## 7. Decisões em aberto
 
