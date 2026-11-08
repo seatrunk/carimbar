@@ -20,7 +20,7 @@ domínio conhece CLI, MCP ou Python.
 |---|---|---|
 | `carimbar-types` | CNPJ (numérico e alfanumérico), chave de acesso, ambiente, dinheiro em `Decimal`, erros de domínio | Implementado |
 | `carimbar-xml` | Leitura/escrita determinística, C14N 1.0 e validação XSD opcional | Em implementação (#7) |
-| `carimbar-cert` | PKCS#12 A1, cadeia X.509, validade, titular e chave privada protegida | Pendente (#8) |
+| `carimbar-cert` | PKCS#12 A1, cadeia X.509, validade, titular e chave privada protegida | Implementado (#8) |
 | `carimbar-dsig` | XMLDSig enveloped, assinatura e verificação | Pendente (#9) |
 | `carimbar-transport` | HTTP mTLS, SOAP 1.2 e JSON, timeouts e classificação de falhas | Pendente (#10) |
 | `carimbar-endpoints` | Tabela UF × modelo × ambiente × serviço, versionada e datada | Pendente (#10) |
