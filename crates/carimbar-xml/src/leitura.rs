@@ -39,6 +39,12 @@ pub fn ler_com_limites(xml: &[u8], limites: &Limites) -> Result<Documento, ErroX
             Event::End(_) => estado.fechar(posicao)?,
             Event::Text(texto) => {
                 let conteudo = texto.xml10_content();
+                if conteudo.contains("]]>") {
+                    return Err(ErroXml::sintaxe(
+                        posicao,
+                        "sequência ]]> não é permitida em texto",
+                    ));
+                }
                 let decodificado = quick_xml::escape::unescape(&conteudo)
                     .map_err(|e| ErroXml::sintaxe(posicao, e.to_string()))?;
                 estado.adicionar_texto(&decodificado, posicao)?;
@@ -142,6 +148,12 @@ impl<'a> Estado<'a> {
             }
             let nome = Nome::parse(atributo.key.as_ref())
                 .map_err(|e| ErroXml::sintaxe(posicao, e.to_string()))?;
+            if atributo.value.contains('<') {
+                return Err(ErroXml::sintaxe(
+                    posicao,
+                    "valor de atributo não pode conter '<'",
+                ));
+            }
             let valor = atributo
                 .normalized_value(XmlVersion::Explicit1_0)
                 .map_err(|e| ErroXml::sintaxe(posicao, format!("valor inválido: {e}")))?;

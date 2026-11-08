@@ -63,34 +63,43 @@ eventos, tipos CNC e `xmldsig-core-schema.xsd`.
 ### 2.2 Formatos e versões
 
 - `DPS` raiz `DPS`, versão `1.01`, contém `infDPS` e `Signature` opcional.
-- Identificador da DPS (`TSIdDPS`): literal `DPS` + 45 posições:
-  código do município (7) + tipo de inscrição federal (1) + inscrição federal
-  (14, CPF completado com zeros à esquerda) + série (5) + número (15).
-- Chave da NFS-e (`TSChaveNFSe`): 50 posições no padrão
-  `[0-9]{6}[0-9A-Z]{14}[0-9]{30}`.
+- Identificador da DPS (`TSIdDPS`), no pacote de produção restrita: literal
+  `DPS` + 45 posições: código do município (7) + tipo de inscrição federal (1)
+  + inscrição federal (14) + série (5) + número (15). Na produção, o padrão é
+  `DPS` + 42 dígitos.
+- Chave da NFS-e (`TSChaveNFSe`), produção restrita:
+  `[0-9]{6}([0-9A-Z]{14})[0-9]{30}`. Na produção: `[0-9]{50}`.
 - O grupo `IBSCBS` da DPS é opcional no schema vendorizado e pertence ao leiaute
   com IBS/CBS da reforma tributária.
 - `tpAmb`: `1` produção, `2` homologação.
 
 ### 2.3 Produção versus produção restrita
 
-As páginas oficiais em 2026-11-08 mostram pacotes diferentes:
+Os dois pacotes estão vendorizados e têm `SHA256SUMS`:
 
-| Ambiente | Pacote | Data |
-|---|---|---|
-| Produção | `NFSe-ESQUEMAS_XSD-v1.01-20260209` | 2026-02-09 |
-| Produção restrita / homologação | `esquemas_prod_restrita_20261020` (vendorizado) | 2026-10-20 |
+| Ambiente | Pasta | Origem | SHA-256 do zip |
+|---|---|---|---|
+| Produção restrita / homologação | `schemas/nfse_v1.01_20261020/` | `.../producao-restrita/esquemas_prod_restrita_20261020.zip` (2026-10-20) | `25fdcecc651a67a216496ab10d7566631e6ed10f721e37d62c7845dadb0ea267` |
+| Produção | `schemas/nfse_v1.01_20260209/` | `.../documentacao-atual/nfse-esquemas_xsd-v1-01-20260209.zip` (2026-02-09) | `e7935cbd9470527c6cc32984c1b2263e614183bf0139ce2733eaaed2de9a8072` |
 
-O pacote vendorizado é o de **produção restrita**. Ele inclui evoluções da
-Nota Técnica SE/CGNFS-e nº 009 (grupos IBS/CBS) que ainda não estão no pacote de
-produção de 2026-02-09. Consequências:
+Os arquivos da produção foram comparados um a um com a restrita (nomes dos tipos,
+padrões e presença de elementos). Diferenças que afetam o código:
 
-- A validação de DPS e NFSe contra o XSD vendorizado comprova aderência ao
-  ambiente de teste, não à produção.
-- Antes de habilitar produção, baixar o pacote de produção vigente em uma pasta
-  nova, com `SHA256SUMS` e origem, e rodar os testes contra ele.
-- O leiaute de produção e o de produção restrita podem divergir em campos
-  opcionais/obrigatórios. Não reutilizar o pacote de teste em produção.
+- **CNPJ:** a produção aceita só dígitos (`[0-9]{14}`). A restrita aceita o formato
+  alfanumérico (`[0-9A-Z]{14}`). Um CNPJ alfanumérico válido na restrita é
+  rejeitado pela produção; teste `cnpj_alfanumerico_so_passa_na_producao_restrita`.
+- **Identificadores:** DPS e chave da NFS-e mudam de padrão (seção 2.2).
+- **`finNFSe`:** existe na restrita e não existe na produção. Uma DPS com esse campo
+  é inválida na produção; teste `dps_numerica_sintetica_passa_na_producao` usa a
+  versão sem o campo.
+- **Ajuste de base de cálculo:** a restrita traz `TCInfoAjusteBC`,
+  `TSRTCTpAjusteBC` e tipos de imóveis (`TCRTCInfoBensMoveis`,
+  `TCEnderImovel`). A produção traz `TCInfoDedRed` e `TSIdeDedRed` (deduções).
+- **IBS/CBS:** ambos os pacotes têm o grupo `TCRTCInfoIBSCBS`.
+
+Consequência de design (para #11 e #13): a escolha do XSD tem de seguir o ambiente
+da chamada. Nunca validar ou emitir em produção com o pacote de produção restrita,
+nem o contrário. O pacote de produção é o que a fachada usa quando `tpAmb=1`.
 
 ## 3. NF-e modelo 55
 
@@ -113,11 +122,15 @@ O pacote inclui `nfe_v4.00.xsd`, `leiauteNFe_v4.00.xsd`,
 ### 3.2 IBS/CBS e versões posteriores
 
 O pacote vendorizado cobre o leiaute da NT 2025.002 v1.30 com os grupos de IBS e
-CBS. O portal da SVRS em 2026-11-08 lista o mesmo pacote PL_010b v1.30 como o
-último **pacote de schemas** publicado, mas o texto da NT 2025.002 já está em
-v1.53 (2026-10-30) e há notas posteriores relevantes:
+CBS. Em 2026-11-08, o portal da SVRS lista o pacote PL_010b v1.30 (2025-10-07) como o
+pacote de schemas da NT 2025.002, mas a NT 2025.002 já está em v1.53 (2026-10-30)
+e há um schema de evento da mesma NT, versão 1.40, publicado em 2026-07-23 e não
+vendorizado. Também há o pacote da NT 2022.002 v1.30 (2026-03-20). Portanto, o
+PL_010b v1.30 não é o pacote mais recente do leiaute. Notas posteriores relevantes:
 
-- NT 2026.004 v1.01 (CNPJ alfanumérico, homologação em 2026-06-15).
+- NT 2026.004 v1.01 (CNPJ alfanumérico, homologação em 2026-06-15). O CNPJ
+  alfanumérico da NF-e não é conferido nos XSD vendorizados: o PL_010b v1.30 não
+  o contém (verificar antes de #18).
 - NT 2026.010 v1.00 (DANFE e IBS/CBS).
 - NT 2026.002 / 2026.003 (DANFE Simplificado Tipo 2).
 - NT 2026.008 (valor líquido do produto).
@@ -171,7 +184,8 @@ Evidência de interoperabilidade nesta etapa:
 - vetores 3.1, 3.3 e 3.4 do W3C C14N, adaptados somente para remover DTD;
 - comparação manual com `xmllint --c14n` (com comentários) em documento fiscal
   sintético, sem diferenças fora dos comentários omitidos de propósito;
-- DPS sintética completa validada contra `DPS_v1.01.xsd` oficial;
+- DPS sintética completa validada contra `DPS_v1.01.xsd` oficial (restrita) e
+  versão sem `finNFSe` validada contra o da produção;
 - DPS e NF-e inválidas rejeitadas com diagnóstico `cvc-*`.
 
 ## 5. CNPJ alfanumérico e identificadores
@@ -233,5 +247,8 @@ Ficam para a fase 2, sem bloquear as entregas atuais:
 - Portal NF-e/SVRS — documentos e schemas:
   `https://dfe-portal.svrs.rs.gov.br/NFe/Documentos` (acesso em 2026-11-08).
 - Pacotes vendorizados e seus SHA-256: [schemas/README.md](../schemas/README.md).
-- IN RFB 2.229/2024 e Nota Técnica Conjunta DFe — CNPJ Alfanumérico: referências
-  citadas pelo domínio `Cnpj` e pelo portal NF-e.
+- IN RFB 2.229/2024: citada pelo domínio `Cnpj` (código da Etapa 0). Não foi
+  reconferida nesta revisão; a Nota Técnica Conjunta DFe — CNPJ Alfanumérico (v1.00,
+  2025-05-07) aparece na lista de NTs do portal NF-e.
+- Pacote de produção NFS-e: `nfse-esquemas_xsd-v1-01-20260209.zip`, baixado em
+  2026-11-08 de `https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual`.

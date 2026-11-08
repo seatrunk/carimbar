@@ -127,3 +127,90 @@ fn documento_serializado_valida_pelo_metodo_do_documento() {
         .validar_xsd(fixtures().join("minimo.xsd"))
         .expect("valida");
 }
+
+fn dps_sintetica(cnpj: &str, id: &str) -> String {
+    format!(
+        r#"<DPS xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01">
+  <infDPS Id="{id}">
+    <tpAmb>2</tpAmb>
+    <dhEmi>2026-11-08T10:00:00-03:00</dhEmi>
+    <verAplic>carimbar-0.0.1</verAplic>
+    <serie>1</serie>
+    <nDPS>1</nDPS>
+    <dCompet>2026-11-08</dCompet>
+    <tpEmit>1</tpEmit>
+    <finNFSe>0</finNFSe>
+    <cLocEmi>3550308</cLocEmi>
+    <prest>
+      <CNPJ>{cnpj}</CNPJ>
+      <regTrib>
+        <opSimpNac>1</opSimpNac>
+        <regEspTrib>0</regEspTrib>
+      </regTrib>
+    </prest>
+    <serv>
+      <locPrest><cLocPrestacao>3550308</cLocPrestacao></locPrest>
+      <cServ>
+        <cTribNac>010101</cTribNac>
+        <xDescServ>Servico sintetico de teste</xDescServ>
+      </cServ>
+    </serv>
+    <valores>
+      <vServPrest><vServ>10.00</vServ></vServPrest>
+      <trib>
+        <tribMun><tribISSQN>1</tribISSQN><tpRetISSQN>1</tpRetISSQN></tribMun>
+        <totTrib><indTotTrib>0</indTotTrib></totTrib>
+      </trib>
+    </valores>
+  </infDPS>
+</DPS>"#
+    )
+}
+
+/// `finNFSe` existe só no pacote de produção restrita; a produção não o declara.
+fn sem_fin_nfse(xml: String) -> String {
+    xml.replace("    <finNFSe>0</finNFSe>\n", "")
+}
+
+#[test]
+fn dps_numerica_sintetica_passa_na_producao() {
+    let xml = sem_fin_nfse(dps_sintetica(
+        "00000001000136",
+        "DPS355030810000000100013600001000000000000001",
+    ));
+    carimbar_xml::xsd::validar(
+        xml.as_bytes(),
+        esquema_oficial("nfse_v1.01_20260209", "DPS_v1.01.xsd"),
+    )
+    .expect("DPS numérica válida na produção");
+}
+
+#[test]
+fn cnpj_alfanumerico_so_passa_na_producao_restrita() {
+    let cnpj = "00000001000A40";
+    assert!(
+        carimbar_types::Cnpj::parse(cnpj).is_ok(),
+        "CNPJ sintético precisa ter DV válido"
+    );
+    let id = "DPS3550308200000001000A4000001000000000000001";
+    let xml = dps_sintetica(cnpj, id);
+
+    carimbar_xml::xsd::validar(
+        xml.as_bytes(),
+        esquema_oficial("nfse_v1.01_20261020", "DPS_v1.01.xsd"),
+    )
+    .expect("CNPJ alfanumérico válido na produção restrita");
+
+    let erro = carimbar_xml::xsd::validar(
+        sem_fin_nfse(xml).as_bytes(),
+        esquema_oficial("nfse_v1.01_20260209", "DPS_v1.01.xsd"),
+    )
+    .expect_err("CNPJ alfanumérico não é aceito na produção");
+    match erro {
+        ErroXml::Xsd(mensagem) => assert!(
+            mensagem.contains("cvc-pattern"),
+            "erro deveria vir do padrão do CNPJ: {mensagem}"
+        ),
+        outro => panic!("erro inesperado: {outro}"),
+    }
+}

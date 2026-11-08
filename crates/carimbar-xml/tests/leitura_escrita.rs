@@ -67,6 +67,22 @@ fn cdata_vira_texto() {
 }
 
 #[test]
+fn rejeita_sequencia_fim_de_cdata_em_texto() {
+    assert!(Documento::parse(b"<a>x]]>y</a>").is_err());
+    assert_eq!(
+        parse("<a>]]&gt;</a>").raiz().texto(),
+        "]]>",
+        "o > escapado é permitido"
+    );
+}
+
+#[test]
+fn rejeita_menor_que_em_valor_de_atributo() {
+    assert!(Documento::parse(b"<a x=\"a<b\"/>").is_err());
+    assert_eq!(parse("<a x=\"a&lt;b\"/>").raiz().atributo("x"), Some("a<b"));
+}
+
+#[test]
 fn rejeita_dtd() {
     let erro = Documento::parse(b"<!DOCTYPE a><a/>").expect_err("DTD rejeitada");
     assert!(matches!(erro, ErroXml::DtdProibida { .. }), "{erro}");

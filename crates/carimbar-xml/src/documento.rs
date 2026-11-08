@@ -115,7 +115,6 @@ impl Atributo {
     pub(crate) fn prefixo_declarado(&self) -> Option<&str> {
         match self.nome.prefixo() {
             None => None,
-            Some("xmlns") => Some(self.nome.local()),
             Some(_) => Some(self.nome.local()),
         }
     }

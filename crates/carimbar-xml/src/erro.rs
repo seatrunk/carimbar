@@ -47,9 +47,6 @@ pub enum ErroXml {
     /// Codificação diferente de UTF-8.
     #[error("codificação não suportada: {0}; use UTF-8")]
     Codificacao(String),
-    /// Falha ao canonicalizar.
-    #[error("falha ao canonicalizar: {0}")]
-    Canonicalizacao(String),
     /// O documento não é válido para o XSD informado.
     #[cfg(feature = "xsd")]
     #[error("XML inválido para o XSD: {0}")]
