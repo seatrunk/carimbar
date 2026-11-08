@@ -21,7 +21,7 @@ domínio conhece CLI, MCP ou Python.
 | `carimbar-types` | CNPJ (numérico e alfanumérico), chave de acesso, ambiente, dinheiro em `Decimal`, erros de domínio | Implementado |
 | `carimbar-xml` | Leitura/escrita determinística, C14N 1.0 e validação XSD opcional | Em implementação (#7) |
 | `carimbar-cert` | PKCS#12 A1, cadeia X.509, validade, titular e chave privada protegida | Implementado (#8) |
-| `carimbar-dsig` | XMLDSig enveloped, assinatura e verificação | Pendente (#9) |
+| `carimbar-dsig` | XMLDSig enveloped, assinatura e verificação | Parcial: RSA-SHA256; NF-e/RSA-SHA1 pendente (#9) |
 | `carimbar-transport` | HTTP mTLS, SOAP 1.2 e JSON, timeouts e classificação de falhas | Pendente (#10) |
 | `carimbar-endpoints` | Tabela UF × modelo × ambiente × serviço, versionada e datada | Pendente (#10) |
 | `carimbar-vault` | Cofre multiempresa, envelope encryption e auditoria | Pendente (#12) |
@@ -151,15 +151,16 @@ dígitos e letras `A`–`Z`.
 
 ## 4. XMLDSig e canonicalização
 
-- Perfil planejado: XMLDSig enveloped, referência ao documento inteiro,
+- Perfil implementado: XMLDSig enveloped, referência ao elemento fiscal por `#Id`,
   transformação `enveloped-signature` e C14N 1.0 inclusiva sem comentários.
-- C14N 1.0 é o perfil usado pelos leiautes fiscais; C14N 1.1 resolve casos de
-  subconjunto com `xml:base`/`xml:id` que o MVP não precisa assinar.
+- C14N 1.0 é o perfil usado pelos leiautes fiscais. Ao canonicalizar uma subárvore,
+  os atributos `xml:*` são herdados do ancestral mais próximo, inclusive
+  `xml:base` e `xml:id`. As regras especiais do C14N 1.1 não são aplicadas.
 - A canonicalização deve preservar prefixos, ordenar declarações de namespace
   por prefixo e atributos por URI de namespace + nome local, e expandir
   referências de caractere.
-- Assinatura e verificação serão conferidas com uma implementação independente
-  (`xmlsec1`) em testes manuais; o CI usa vetores sintéticos e não depende de
+- Assinatura e verificação são conferidas nas duas direções com uma implementação
+  independente (`xmlsec1`) em testes locais e no CI, com material sintético e sem
   serviço externo.
 
 Limite conhecido: o parser fiscal rejeita DTD e entidades externas. Por isso,
@@ -187,6 +188,45 @@ Evidência de interoperabilidade nesta etapa:
 - DPS sintética completa validada contra `DPS_v1.01.xsd` oficial (restrita) e
   versão sem `finNFSe` validada contra o da produção;
 - DPS e NF-e inválidas rejeitadas com diagnóstico `cvc-*`.
+
+### 4.2 Perfil XMLDSig implementado parcialmente (#9)
+
+`carimbar-dsig` assina e verifica o perfil abaixo. Qualquer outro algoritmo é recusado.
+
+| Item | Valor |
+|---|---|
+| Assinatura | `Signature` filha do elemento raiz (`NFe`/`DPS`), após o elemento assinado |
+| Referência | `URI="#Id"`, `Id` único; alvo deve ser filho direto da raiz |
+| Transformadas | Exatamente `enveloped-signature` seguida de C14N 1.0 inclusiva, sem parâmetros |
+| Canonicalização | C14N 1.0 inclusiva, sem comentários |
+| Digest | SHA-256 |
+| Assinatura | RSASSA-PKCS1-v1_5 com SHA-256 |
+| `KeyInfo` | `X509Data/X509Certificate` com a folha |
+
+Decisões desta etapa:
+
+- **NF-e ainda não é compatível.** O arquivo oficial vendorizado
+  `schemas/PL_010b_v1.30/xmldsig-core-schema_v1.01.xsd` fixa `SignatureMethod`
+  em RSA-SHA1 e `DigestMethod` em SHA-1. O perfil implementado usa SHA-256 e não
+  satisfaz esse XSD. A #9 permanece aberta até implementar e validar o perfil
+  exigido. Não há fallback automático de algoritmo. A validação da DPS por XSD
+  demonstra conformidade estrutural, sem comprovar aceitação pelo serviço Sefin.
+- **Confiança não é verificada.** `verificar` prova integridade e autoria pela
+  chave do certificado em `KeyInfo`. Cadeia, validade no tempo e revogação ficam
+  com quem usa o resultado (`carimbar-cert` e a política de confiança). O consumidor
+  também compara o `Id` verificado com o esperado e não trata irmãos do elemento
+  referenciado como conteúdo autenticado.
+- **Chave privada fora do crate.** A assinatura passa pela trait `Signer`;
+  `CertificadoA1` a implementa e nunca expõe a chave.
+
+Evidência de interoperabilidade: documentos assinados pelo `carimbar` são
+verificados pelo `xmlsec1` (com `--trusted-pem`), e assinaturas geradas pelo
+`xmlsec1` são verificadas pelo `carimbar`. A DPS assinada passa no XSD oficial.
+
+O verificador recusa IDs duplicados, alvo movido para níveis internos, múltiplas
+assinaturas, transformadas ausentes/repetidas/fora de ordem, parâmetros não
+suportados, elementos em namespaces incorretos e certificado DER com conteúdo
+excedente. Assinar novamente um documento já assinado também é recusado.
 
 ## 5. CNPJ alfanumérico e identificadores
 

@@ -118,3 +118,73 @@ fn escapa_cr_em_atributo() {
     let entrada = "<r a=\"x&#xD;y\"/>";
     assert_eq!(canonico(entrada), "<r a=\"x&#xD;y\"></r>");
 }
+
+#[test]
+fn subarvore_herda_namespaces_e_xml_lang_do_ancestral() {
+    let documento = Documento::parse(
+        br#"<r xmlns="urn:a" xmlns:p="urn:p" xml:lang="pt"><p:x a="1"><y/></p:x></r>"#,
+    )
+    .expect("XML válido");
+    assert_eq!(
+        documento.canonicalizar_subarvore(&[0]).expect("subárvore"),
+        r#"<p:x xmlns="urn:a" xmlns:p="urn:p" a="1" xml:lang="pt"><y></y></p:x>"#
+    );
+}
+
+#[test]
+fn subarvore_nao_herda_xml_lang_quando_o_proprio_elemento_o_declara() {
+    let documento =
+        Documento::parse(br#"<r xml:lang="pt"><x xml:lang="en"/></r>"#).expect("XML válido");
+    assert_eq!(
+        documento.canonicalizar_subarvore(&[0]).expect("subárvore"),
+        r#"<x xml:lang="en"></x>"#
+    );
+}
+
+#[test]
+fn c14n_10_herda_atributos_xml_do_ancestral_mais_proximo() {
+    let documento = Documento::parse(br#"<r xml:base="https://exemplo.invalid/" xml:id="raiz" xml:space="preserve"><x xml:base="relativo/"><y/></x></r>"#).expect("XML válido");
+    assert_eq!(
+        documento
+            .canonicalizar_subarvore(&[0, 0])
+            .expect("subárvore"),
+        r#"<y xml:base="relativo/" xml:id="raiz" xml:space="preserve"></y>"#,
+    );
+}
+
+#[test]
+fn caminhos_por_atributo_encontra_duplicatas() {
+    let documento = Documento::parse(br#"<r><a Id="1"/><b><c Id="1"/></b><d Id="2"/></r>"#)
+        .expect("XML válido");
+    assert_eq!(documento.caminhos_por_atributo("Id", "1").len(), 2);
+    assert_eq!(documento.caminhos_por_atributo("Id", "2"), vec![vec![2]]);
+    assert!(documento.caminhos_por_atributo("Id", "3").is_empty());
+    assert!(documento.elemento_em(&[9]).is_none());
+}
+
+#[test]
+fn namespace_do_elemento_resolve_prefixos_dos_ancestrais() {
+    let documento =
+        Documento::parse(br#"<r xmlns="urn:a" xmlns:p="urn:p"><p:x><y/></p:x><z xmlns=""/></r>"#)
+            .expect("XML válido");
+    assert_eq!(
+        documento.namespace_do_elemento(&[]).as_deref(),
+        Some("urn:a")
+    );
+    assert_eq!(
+        documento.namespace_do_elemento(&[0]).as_deref(),
+        Some("urn:p")
+    );
+    assert_eq!(
+        documento.namespace_do_elemento(&[0, 0]).as_deref(),
+        Some("urn:a")
+    );
+    assert_eq!(documento.namespace_do_elemento(&[1]).as_deref(), Some(""));
+    assert!(documento.namespace_do_elemento(&[7]).is_none());
+    assert_eq!(documento.caminhos_por_local("x"), vec![vec![0]]);
+    let com_prefixo_xml = Documento::parse(b"<r><xml:x/></r>").expect("XML válido");
+    assert_eq!(
+        com_prefixo_xml.namespace_do_elemento(&[0]).as_deref(),
+        Some(carimbar_xml::URI_XML),
+    );
+}

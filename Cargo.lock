@@ -193,14 +193,14 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "carimbar"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "carimbar-types",
 ]
 
 [[package]]
 name = "carimbar-cert"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "carimbar-types",
  "p12-keystore",
@@ -212,56 +212,63 @@ dependencies = [
 
 [[package]]
 name = "carimbar-cli"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "carimbar",
 ]
 
 [[package]]
 name = "carimbar-danfe"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "carimbar-types",
 ]
 
 [[package]]
 name = "carimbar-dsig"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
+ "base64",
+ "carimbar-cert",
+ "carimbar-types",
  "carimbar-xml",
+ "ring",
+ "sha2",
+ "thiserror 2.0.21",
+ "x509-parser",
 ]
 
 [[package]]
 name = "carimbar-endpoints"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "carimbar-types",
 ]
 
 [[package]]
 name = "carimbar-mcp"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "carimbar",
 ]
 
 [[package]]
 name = "carimbar-nfe"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "carimbar-types",
 ]
 
 [[package]]
 name = "carimbar-nfse"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "carimbar-types",
 ]
 
 [[package]]
 name = "carimbar-py"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "carimbar-types",
  "pyo3",
@@ -269,14 +276,14 @@ dependencies = [
 
 [[package]]
 name = "carimbar-transport"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "carimbar-types",
 ]
 
 [[package]]
 name = "carimbar-types"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "rust_decimal",
  "thiserror 2.0.21",
@@ -284,14 +291,14 @@ dependencies = [
 
 [[package]]
 name = "carimbar-vault"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "carimbar-types",
 ]
 
 [[package]]
 name = "carimbar-xml"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "carimbar-types",
  "quick-xml 0.42.0",

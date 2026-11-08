@@ -1,5 +1,14 @@
 # Release
 
+## Versão em desenvolvimento
+
+O workspace passou para `0.0.2`, com dependências internas fixadas na mesma
+versão. A mudança separa as novas APIs XML/assinatura dos pacotes `0.0.1`
+imutáveis já publicados: reutilizar o número anterior pode fazer o dry-run
+compilar contra o XML antigo do registro. Este ajuste não publica pacotes nem
+cria tags. As instruções de recuperação de `v0.0.1` abaixo são históricas e
+devem usar o checkout daquela tag.
+
 `.github/workflows/release.yml` roda só em push de tag `v*` ou manualmente
 (`workflow_dispatch`). Nada roda em branch nem em PR. Publicar é irreversível:
 crates.io e PyPI não apagam versões (no máximo yank).
@@ -24,7 +33,7 @@ que espera o índice entre um crate e outro. Pacotes sem XSD nem testes de integ
 ## Primeira publicação (0.0.1)
 
 1. Conferir que a `main` está verde no CI e que `version` em `[workspace.package]`
-   é a desejada (hoje `0.0.1`). Versão de `pyproject` sai da mesma fonte.
+   é a desejada (`0.0.1` naquela primeira publicação). Versão de `pyproject` sai da mesma fonte.
 2. Criar e enviar a tag no commit da `main`:
    `git tag -a v0.0.1 -m "carimbar 0.0.1" && git push origin v0.0.1`.
 3. Em Actions → Release, aprovar os deploys `crates-io` e `pypi` quando pedidos

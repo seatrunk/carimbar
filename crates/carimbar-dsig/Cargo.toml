@@ -14,9 +14,17 @@ categories.workspace = true
 include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
+base64 = "0.22"
+carimbar-cert.workspace = true
 carimbar-xml.workspace = true
+ring = "0.17"
+sha2.workspace = true
+thiserror.workspace = true
+x509-parser = "0.18"
 
 [dev-dependencies]
+carimbar-types.workspace = true
+carimbar-xml = { workspace = true, features = ["xsd"] }
 
 [lints]
 workspace = true

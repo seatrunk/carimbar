@@ -250,6 +250,46 @@ impl Elemento {
     }
 }
 
+/// Caminho até um elemento: índices em `filhos()` a partir da raiz.
+pub type Caminho = Vec<usize>;
+
+fn coletar_caminhos(
+    elemento: &Elemento,
+    nome: &str,
+    valor: &str,
+    caminho: &mut Vec<usize>,
+    encontrados: &mut Vec<Caminho>,
+) {
+    if elemento.atributo(nome) == Some(valor) {
+        encontrados.push(caminho.clone());
+    }
+    for (indice, filho) in elemento.filhos().iter().enumerate() {
+        if let No::Elemento(filho) = filho {
+            caminho.push(indice);
+            coletar_caminhos(filho, nome, valor, caminho, encontrados);
+            caminho.pop();
+        }
+    }
+}
+
+fn coletar_por_local(
+    elemento: &Elemento,
+    local: &str,
+    caminho: &mut Vec<usize>,
+    encontrados: &mut Vec<Caminho>,
+) {
+    if elemento.nome().local() == local {
+        encontrados.push(caminho.clone());
+    }
+    for (indice, filho) in elemento.filhos().iter().enumerate() {
+        if let No::Elemento(filho) = filho {
+            caminho.push(indice);
+            coletar_por_local(filho, local, caminho, encontrados);
+            caminho.pop();
+        }
+    }
+}
+
 /// Versão e modo standalone da declaração XML.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Declaracao {
@@ -326,6 +366,64 @@ impl Documento {
     /// Serializa em UTF-8 de forma determinística.
     pub fn to_xml(&self) -> Result<String, ErroXml> {
         crate::escrita::escrever(self)
+    }
+
+    /// Caminhos até os elementos cujo atributo sem prefixo `nome` vale `valor`.
+    ///
+    /// Um caminho é a sequência de índices em `filhos()` a partir da raiz; a raiz tem
+    /// o caminho vazio. O resultado inclui todas as ocorrências, para detectar IDs duplicados.
+    pub fn caminhos_por_atributo(&self, nome: &str, valor: &str) -> Vec<Caminho> {
+        let mut encontrados = Vec::new();
+        coletar_caminhos(&self.raiz, nome, valor, &mut Vec::new(), &mut encontrados);
+        encontrados
+    }
+
+    /// Elemento no `caminho` informado, ou `None` se o caminho não existir.
+    pub fn elemento_em(&self, caminho: &[usize]) -> Option<&Elemento> {
+        let mut atual = &self.raiz;
+        for indice in caminho {
+            match atual.filhos().get(*indice)? {
+                No::Elemento(filho) => atual = filho,
+                _ => return None,
+            }
+        }
+        Some(atual)
+    }
+
+    /// Caminhos até os elementos com a parte local `local`, em qualquer namespace.
+    pub fn caminhos_por_local(&self, local: &str) -> Vec<Caminho> {
+        let mut encontrados = Vec::new();
+        coletar_por_local(&self.raiz, local, &mut Vec::new(), &mut encontrados);
+        encontrados
+    }
+
+    /// URI do namespace do elemento no `caminho`, resolvida pelos prefixos em escopo.
+    /// Vazia quando o elemento não está em namespace; `None` se o caminho não existir.
+    pub fn namespace_do_elemento(&self, caminho: &[usize]) -> Option<String> {
+        let mut escopo: std::collections::BTreeMap<String, String> =
+            std::collections::BTreeMap::new();
+        escopo.insert(PREFIXO_XML.to_owned(), URI_XML.to_owned());
+        let mut atual = &self.raiz;
+        let mut ancestrais = vec![&self.raiz];
+        for indice in caminho {
+            atual = match atual.filhos().get(*indice)? {
+                No::Elemento(filho) => filho,
+                _ => return None,
+            };
+            ancestrais.push(atual);
+        }
+        for ancestral in &ancestrais {
+            for (prefixo, uri) in ancestral.declaracoes_namespace() {
+                escopo.insert(prefixo.unwrap_or("").to_owned(), uri.to_owned());
+            }
+        }
+        let prefixo = atual.nome().prefixo().unwrap_or("");
+        Some(escopo.get(prefixo).cloned().unwrap_or_default())
+    }
+
+    /// Forma canônica C14N 1.0 inclusiva, sem comentários, da subárvore no `caminho`.
+    pub fn canonicalizar_subarvore(&self, caminho: &[usize]) -> Result<String, ErroXml> {
+        crate::canonico::canonicalizar_subarvore(self, caminho)
     }
 
     /// Gera a forma canônica C14N 1.0 inclusiva sem comentários.

@@ -29,7 +29,8 @@ mod validacao;
 pub mod xsd;
 
 pub use documento::{
-    Atributo, Declaracao, Documento, Elemento, Limites, No, Nome, PREFIXO_XML, URI_XML, URI_XMLNS,
+    Atributo, Caminho, Declaracao, Documento, Elemento, Limites, No, Nome, PREFIXO_XML, URI_XML,
+    URI_XMLNS,
 };
 pub use erro::ErroXml;
 pub use leitura::{ler, ler_com_limites};

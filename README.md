@@ -36,8 +36,10 @@ acesso, ambiente e dinheiro), schemas oficiais com verificação de integridade,
 infraestrutura de CI/release e validações básicas no binding Python. A leitura e
 escrita de XML, a canonicalização e a validação XSD estão implementadas. Os
 certificados A1 (senha, validade, titular por CNPJ e assinatura RSA-SHA256)
-também estão implementados. Assinatura XMLDSig, transporte, cofre, emissão,
-PDFs, CLI e MCP ainda são stubs; **não há emissão funcional de notas fiscais**.
+também estão implementados, assim como assinatura e verificação XMLDSig com
+RSA-SHA256. O perfil RSA-SHA1 exigido pelo XSD de NF-e vendorizado ainda está
+pendente na #9. Transporte, cofre, emissão, PDFs, CLI e MCP ainda são
+stubs; **não há emissão funcional de notas fiscais**.
 
 O [plano de implementação do MVP](docs/plano-mvp.md) organiza as etapas,
 dependências e critérios de conclusão, acompanhados pela

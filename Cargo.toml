@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
@@ -14,17 +14,17 @@ keywords = ["nfe", "nfse", "fiscal", "brasil", "sefaz"]
 categories = ["finance", "encoding"]
 
 [workspace.dependencies]
-carimbar-types = { path = "crates/carimbar-types", version = "=0.0.1" }
-carimbar-xml = { path = "crates/carimbar-xml", version = "=0.0.1" }
-carimbar-dsig = { path = "crates/carimbar-dsig", version = "=0.0.1" }
-carimbar-cert = { path = "crates/carimbar-cert", version = "=0.0.1" }
-carimbar-transport = { path = "crates/carimbar-transport", version = "=0.0.1" }
-carimbar-endpoints = { path = "crates/carimbar-endpoints", version = "=0.0.1" }
-carimbar-nfe = { path = "crates/carimbar-nfe", version = "=0.0.1" }
-carimbar-nfse = { path = "crates/carimbar-nfse", version = "=0.0.1" }
-carimbar-danfe = { path = "crates/carimbar-danfe", version = "=0.0.1" }
-carimbar-vault = { path = "crates/carimbar-vault", version = "=0.0.1" }
-carimbar = { path = "crates/carimbar", version = "=0.0.1" }
+carimbar-types = { path = "crates/carimbar-types", version = "=0.0.2" }
+carimbar-xml = { path = "crates/carimbar-xml", version = "=0.0.2" }
+carimbar-dsig = { path = "crates/carimbar-dsig", version = "=0.0.2" }
+carimbar-cert = { path = "crates/carimbar-cert", version = "=0.0.2" }
+carimbar-transport = { path = "crates/carimbar-transport", version = "=0.0.2" }
+carimbar-endpoints = { path = "crates/carimbar-endpoints", version = "=0.0.2" }
+carimbar-nfe = { path = "crates/carimbar-nfe", version = "=0.0.2" }
+carimbar-nfse = { path = "crates/carimbar-nfse", version = "=0.0.2" }
+carimbar-danfe = { path = "crates/carimbar-danfe", version = "=0.0.2" }
+carimbar-vault = { path = "crates/carimbar-vault", version = "=0.0.2" }
+carimbar = { path = "crates/carimbar", version = "=0.0.2" }
 rust_decimal = { version = "1.43", default-features = false, features = ["std"] }
 thiserror = "2"
 sha2 = "0.11"
