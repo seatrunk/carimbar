@@ -29,7 +29,7 @@ wildcards = "deny"
 allow-wildcard-paths = true
 deny = [
   # D2/D3: sem OpenSSL no grafo padrão (rustls e p12-keystore).
-  { crate = "openssl-sys", reason = "rustls é o padrão (D3); openssl só atrás de feature, com exceção explícita" },
+  { crate = "openssl-sys", wrappers = ["openssl"], reason = "exceção explícita: openssl opcional em carimbar-cert/nfe-sha1 apenas para assinatura RSA-SHA1 da NF-e; grafo padrão continua sem OpenSSL" },
 ]
 
 [sources]

@@ -21,7 +21,7 @@ domínio conhece CLI, MCP ou Python.
 | `carimbar-types` | CNPJ (numérico e alfanumérico), chave de acesso, ambiente, dinheiro em `Decimal`, erros de domínio | Implementado |
 | `carimbar-xml` | Leitura/escrita determinística, C14N 1.0 e validação XSD opcional | Em implementação (#7) |
 | `carimbar-cert` | PKCS#12 A1, cadeia X.509, validade, titular e chave privada protegida | Implementado (#8) |
-| `carimbar-dsig` | XMLDSig enveloped, assinatura e verificação | Parcial: RSA-SHA256; NF-e/RSA-SHA1 pendente (#9) |
+| `carimbar-dsig` | XMLDSig enveloped, assinatura e verificação | RSA-SHA256 padrão; NF-e/RSA-SHA1 via feature opcional (#9) |
 | `carimbar-transport` | HTTP mTLS, SOAP 1.2 e JSON, timeouts e classificação de falhas | Pendente (#10) |
 | `carimbar-endpoints` | Tabela UF × modelo × ambiente × serviço, versionada e datada | Pendente (#10) |
 | `carimbar-vault` | Cofre multiempresa, envelope encryption e auditoria | Pendente (#12) |
@@ -189,9 +189,9 @@ Evidência de interoperabilidade nesta etapa:
   versão sem `finNFSe` validada contra o da produção;
 - DPS e NF-e inválidas rejeitadas com diagnóstico `cvc-*`.
 
-### 4.2 Perfil XMLDSig implementado parcialmente (#9)
+### 4.2 Perfis XMLDSig implementados (#9)
 
-`carimbar-dsig` assina e verifica o perfil abaixo. Qualquer outro algoritmo é recusado.
+`carimbar-dsig` assina e verifica os perfis abaixo. Qualquer outro algoritmo é recusado.
 
 | Item | Valor |
 |---|---|
@@ -199,18 +199,31 @@ Evidência de interoperabilidade nesta etapa:
 | Referência | `URI="#Id"`, `Id` único; alvo deve ser filho direto da raiz |
 | Transformadas | Exatamente `enveloped-signature` seguida de C14N 1.0 inclusiva, sem parâmetros |
 | Canonicalização | C14N 1.0 inclusiva, sem comentários |
-| Digest | SHA-256 |
-| Assinatura | RSASSA-PKCS1-v1_5 com SHA-256 |
+| Digest | SHA-256 por padrão; SHA-1 no perfil explícito `NfeSha1` |
+| Assinatura | RSASSA-PKCS1-v1_5 com SHA-256 por padrão; RSA-SHA1 no perfil explícito de NF-e |
 | `KeyInfo` | `X509Data/X509Certificate` com a folha |
 
 Decisões desta etapa:
 
-- **NF-e ainda não é compatível.** O arquivo oficial vendorizado
+- **Perfil de assinatura NF-e validado.** O arquivo oficial vendorizado
   `schemas/PL_010b_v1.30/xmldsig-core-schema_v1.01.xsd` fixa `SignatureMethod`
-  em RSA-SHA1 e `DigestMethod` em SHA-1. O perfil implementado usa SHA-256 e não
-  satisfaz esse XSD. A #9 permanece aberta até implementar e validar o perfil
-  exigido. Não há fallback automático de algoritmo. A validação da DPS por XSD
-  demonstra conformidade estrutural, sem comprovar aceitação pelo serviço Sefin.
+  em RSA-SHA1 e `DigestMethod` em SHA-1. A feature `nfe-sha1` habilita
+  `PerfilAssinatura::NfeSha1`, usado explicitamente por `assinar_com_perfil` e
+  `verificar_com_perfil`. O teste extrai a `Signature` e a valida contra esse XSD;
+  a assinatura SHA-256 é rejeitada pelo mesmo schema. A modelagem e validação do
+  XML completo da NF-e pertencem à #18. Não há fallback nem detecção automática:
+  `assinar`/`verificar` continuam exigindo SHA-256 mesmo com a feature ligada.
+- **Exceção de backend restrita ao legado.** `ring` não assina RSA-SHA1. Somente
+  a feature opcional `carimbar-cert/nfe-sha1` usa OpenSSL para essa operação;
+  SHA-256 e a verificação RSA de ambos os perfis permanecem no `ring`. A exceção
+  de `openssl-sys` está registrada em `deny.toml`, com wrapper `openssl`, e o CI
+  confere que o grafo padrão não contém OpenSSL. O build legado requer headers
+  e bibliotecas OpenSSL do sistema (`libssl-dev` e `pkg-config` no Ubuntu).
+  Se o backend/política criptográfica recusar SHA-1, retorna erro sem tentar
+  outro algoritmo. A alternativa RustCrypto RSA não foi adicionada: o banco
+  RustSec ainda a lista em RUSTSEC-2023-0071 sem versão corrigida.
+- **Escopo da evidência.** XSD e interoperabilidade local não demonstram aceitação
+  pelo Sefin/SEFAZ. Emissão e homologação continuam nas #11, #18 e #21.
 - **Confiança não é verificada.** `verificar` prova integridade e autoria pela
   chave do certificado em `KeyInfo`. Cadeia, validade no tempo e revogação ficam
   com quem usa o resultado (`carimbar-cert` e a política de confiança). O consumidor
@@ -221,7 +234,8 @@ Decisões desta etapa:
 
 Evidência de interoperabilidade: documentos assinados pelo `carimbar` são
 verificados pelo `xmlsec1` (com `--trusted-pem`), e assinaturas geradas pelo
-`xmlsec1` são verificadas pelo `carimbar`. A DPS assinada passa no XSD oficial.
+`xmlsec1` são verificadas pelo `carimbar`, nos dois perfis. A DPS SHA-256 passa no
+XSD oficial; a `Signature` NF-e SHA-1 passa no XSD específico de assinatura.
 
 O verificador recusa IDs duplicados, alvo movido para níveis internos, múltiplas
 assinaturas, transformadas ausentes/repetidas/fora de ordem, parâmetros não
@@ -237,8 +251,8 @@ excedente. Assinar novamente um documento já assinado também é recusado.
 - A chave de acesso da NF-e e os identificadores da NFS-e usam os mesmos
   caracteres alfabéticos permitidos pelo contrato correspondente.
 
-O tipo `Cnpj` já implementa e testa essas regras. A integração com certificados
-(#8) ainda precisa mapear os OIDs ICP-Brasil que ligam o titular ao CNPJ.
+O tipo `Cnpj` implementa e testa essas regras. O `carimbar-cert` (#8) já lê o
+CNPJ do titular pelo OID ICP-Brasil `2.16.76.1.3.3` e valida o vínculo na abertura.
 
 ## 6. Ambientes e segurança
 

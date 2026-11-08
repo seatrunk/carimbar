@@ -21,6 +21,10 @@ cargo test -p carimbar-xml --features xsd
 cargo test -p carimbar-cert
 # carimbar-dsig verifica assinaturas com o CLI xmlsec1 (apt install xmlsec1).
 cargo test -p carimbar-dsig
+# Perfil legado: requer libssl-dev e pkg-config no Ubuntu, além de xmlsec1.
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+cargo test --workspace --all-features --locked
+cargo +1.88 check -p carimbar-dsig --features nfe-sha1 --locked
 cargo deny check
 (cd crates/carimbar-py && maturin build)
 ./scripts/check-no-certs.sh
@@ -29,6 +33,13 @@ cargo deny check
 
 Toolchain fixado em `rust-toolchain.toml`; MSRV declarado em `Cargo.toml` (`rust-version`).
 `unsafe_code` é `forbid` em todos os crates, exceto `carimbar-py` (macros do PyO3).
+
+O runtime padrão continua sem OpenSSL. A feature opcional
+`carimbar-dsig/nfe-sha1` habilita `carimbar-cert/nfe-sha1` e o backend OpenSSL
+exclusivamente para assinatura RSA-SHA1 da NF-e. A exceção está registrada em
+`deny.toml`; o job `nfe-sha1` testa a feature e confere que o grafo padrão não
+inclui `openssl`/`openssl-sys`. O CLI `openssl` usado para gerar certificados
+sintéticos nos testes é uma dependência de teste distinta dessa feature.
 
 ## Schemas
 

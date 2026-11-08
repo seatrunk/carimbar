@@ -139,6 +139,26 @@ impl CertificadoA1 {
         Ok(assinatura)
     }
 
+    /// Assina com RSA PKCS#1 v1.5/SHA-1 para o contrato legado da NF-e.
+    ///
+    /// Disponível somente com a feature `nfe-sha1`. Usa o backend OpenSSL;
+    /// SHA-256 continua no `ring`. Não há fallback automático entre algoritmos.
+    /// A validade é verificada na abertura, como em [`Self::assinar_rsa_sha256`].
+    #[cfg(feature = "nfe-sha1")]
+    pub fn assinar_rsa_sha1_nfe(&self, mensagem: &[u8]) -> Result<Vec<u8>, ErroCertificado> {
+        let assinar = || {
+            let chave = openssl::pkey::PKey::private_key_from_pkcs8(&self.chave_pkcs8)?;
+            let mut assinante =
+                openssl::sign::Signer::new(openssl::hash::MessageDigest::sha1(), &chave)?;
+            assinante.set_rsa_padding(openssl::rsa::Padding::PKCS1)?;
+            assinante.update(mensagem)?;
+            assinante.sign_to_vec()
+        };
+        assinar().map_err(|_: openssl::error::ErrorStack| {
+            ErroCertificado::Assinatura("falha na operação RSA-SHA1 da NF-e".to_owned())
+        })
+    }
+
     /// Identidade TLS para o transporte mTLS. Não copia a chave.
     pub fn identidade_tls(&self) -> IdentidadeTls<'_> {
         IdentidadeTls {

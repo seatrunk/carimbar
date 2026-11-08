@@ -477,3 +477,212 @@ fn modelo_xmlsec(xml: &str) -> String {
     );
     xml.replacen("</DPS>", &format!("{assinatura}</DPS>"), 1)
 }
+
+#[cfg(feature = "nfe-sha1")]
+mod nfe {
+    use super::*;
+    use carimbar_dsig::{PerfilAssinatura, Signer, assinar_com_perfil, verificar_com_perfil};
+
+    const ID_NFE: &str = "NFe43261100000001000136550010000001231000000420";
+    const PERFIL: PerfilAssinatura = PerfilAssinatura::NfeSha1;
+
+    // XML sintético para testar a assinatura de infNFe. O modelo completo da
+    // nota e a validação de seu conteúdo fiscal pertencem à issue #18.
+    fn nfe() -> Documento {
+        Documento::parse(format!(
+            r#"<NFe xmlns="http://www.portalfiscal.inf.br/nfe"><infNFe Id="{ID_NFE}" versao="4.00"><ide><tpAmb>2</tpAmb></ide></infNFe></NFe>"#,
+        ).as_bytes()).expect("XML sintético")
+    }
+
+    fn assinada(nome: &str) -> (A1Sintetico, String) {
+        let a1 = a1(nome);
+        let documento =
+            assinar_com_perfil(&nfe(), ID_NFE, &a1.certificado, PERFIL).expect("assina NF-e");
+        (a1, documento.to_xml().expect("serializa"))
+    }
+
+    #[test]
+    fn sha1_exige_selecao_explicita_e_sobrevive_a_releitura() {
+        let (_a1, xml) = assinada("nfe-reler");
+        let documento = Documento::parse(xml.as_bytes()).expect("relê");
+        assert_eq!(
+            verificar_com_perfil(&documento, PERFIL)
+                .expect("verifica NF-e")
+                .id(),
+            ID_NFE
+        );
+        assert!(matches!(
+            verificar(&documento),
+            Err(ErroDsig::AlgoritmoNaoSuportado {
+                campo: "SignatureMethod",
+                ..
+            })
+        ));
+        let a1 = a1("nfe-padrao");
+        let sha256 = assinar(&nfe(), ID_NFE, &a1.certificado).expect("padrão continua SHA-256");
+        verificar(&sha256).expect("verifica padrão");
+        assert!(matches!(
+            verificar_com_perfil(&sha256, PERFIL),
+            Err(ErroDsig::AlgoritmoNaoSuportado {
+                campo: "SignatureMethod",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn assinatura_nfe_passa_no_xsd_que_fixa_rsa_sha1_e_sha1() {
+        let a1 = a1("nfe-schema");
+        let esquema = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../schemas/PL_010b_v1.30/xmldsig-core-schema_v1.01.xsd");
+        for (perfil, esperado) in [(PERFIL, true), (PerfilAssinatura::Sha256, false)] {
+            let assinado =
+                assinar_com_perfil(&nfe(), ID_NFE, &a1.certificado, perfil).expect("assina");
+            let assinatura = assinado
+                .raiz()
+                .filhos()
+                .iter()
+                .find_map(|no| match no {
+                    carimbar_xml::No::Elemento(e) if e.nome().local() == "Signature" => {
+                        Some(e.clone())
+                    }
+                    _ => None,
+                })
+                .expect("Signature");
+            let documento = Documento::new(assinatura);
+            assert_eq!(
+                documento.validar_xsd(&esquema).is_ok(),
+                esperado,
+                "perfil {perfil:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn xmlsec1_verifica_assinatura_nfe_gerada_pelo_carimbar() {
+        let (a1, xml) = assinada("nfe-interop-saida");
+        let arquivo = diretorio("nfe-interop-saida").join("assinado.xml");
+        std::fs::write(&arquivo, xml).expect("grava");
+        let saida = xmlsec1(&[
+            "--verify",
+            "--id-attr:Id",
+            "http://www.portalfiscal.inf.br/nfe:infNFe",
+            "--trusted-pem",
+            a1.cert_pem.to_str().expect("utf-8"),
+            arquivo.to_str().expect("utf-8"),
+        ]);
+        assert!(
+            saida.status.success(),
+            "xmlsec1: {}",
+            String::from_utf8_lossy(&saida.stderr)
+        );
+    }
+
+    #[test]
+    fn verifica_assinatura_nfe_gerada_pelo_xmlsec1() {
+        let a1 = a1("nfe-interop-entrada");
+        let dir = diretorio("nfe-interop-entrada");
+        let modelo = dir.join("modelo.xml");
+        let arquivo = dir.join("assinado.xml");
+        // Reutiliza só o esqueleto XMLDSig independente usado no teste SHA-256.
+        let template = modelo_xmlsec("<DPS></DPS>")
+            .replace("<DPS>", "<NFe xmlns=\"http://www.portalfiscal.inf.br/nfe\">")
+            .replace("</DPS>", "</NFe>")
+            .replace(ID, ID_NFE)
+            .replace(carimbar_dsig::ALG_RSA_SHA256, carimbar_dsig::ALG_RSA_SHA1)
+            .replace(carimbar_dsig::ALG_SHA256, carimbar_dsig::ALG_SHA1)
+            .replacen("<ds:Signature ", &format!("<infNFe Id=\"{ID_NFE}\" versao=\"4.00\"><ide><tpAmb>2</tpAmb></ide></infNFe><ds:Signature "), 1);
+        std::fs::write(&modelo, template).expect("grava modelo");
+        let saida = xmlsec1(&[
+            "--sign",
+            "--lax-key-search",
+            "--id-attr:Id",
+            "infNFe",
+            "--privkey-pem",
+            &format!(
+                "{},{}",
+                dir.join("chave.pem").display(),
+                a1.cert_pem.display()
+            ),
+            "--output",
+            arquivo.to_str().expect("utf-8"),
+            modelo.to_str().expect("utf-8"),
+        ]);
+        assert!(
+            saida.status.success(),
+            "xmlsec1: {}",
+            String::from_utf8_lossy(&saida.stderr)
+        );
+        let documento =
+            Documento::parse(&std::fs::read(arquivo).expect("lê XML")).expect("XML válido");
+        assert_eq!(
+            verificar_com_perfil(&documento, PERFIL)
+                .expect("verifica assinatura externa")
+                .id(),
+            ID_NFE
+        );
+    }
+
+    #[test]
+    fn rejeita_conteudo_alterado_digest_misto_e_id_duplicado_na_nfe() {
+        let (_a1, xml) = assinada("nfe-adulterada");
+        let alterado =
+            Documento::parse(trocar(&xml, "<tpAmb>2</tpAmb>", "<tpAmb>1</tpAmb>").as_bytes())
+                .expect("XML válido");
+        assert_eq!(
+            verificar_com_perfil(&alterado, PERFIL),
+            Err(ErroDsig::DigestDivergente)
+        );
+        let misto = Documento::parse(
+            trocar(&xml, carimbar_dsig::ALG_SHA1, carimbar_dsig::ALG_SHA256).as_bytes(),
+        )
+        .expect("XML válido");
+        assert!(matches!(
+            verificar_com_perfil(&misto, PERFIL),
+            Err(ErroDsig::AlgoritmoNaoSuportado {
+                campo: "DigestMethod",
+                ..
+            })
+        ));
+        let duplicado =
+            Documento::parse(trocar(&xml, "<ide>", &format!("<ide Id=\"{ID_NFE}\">")).as_bytes())
+                .expect("XML válido");
+        assert!(matches!(
+            verificar_com_perfil(&duplicado, PERFIL),
+            Err(ErroDsig::ReferenciaAmbigua { ocorrencias: 2, .. })
+        ));
+        let inicio =
+            xml.find("<ds:SignatureValue>").expect("SignatureValue") + "<ds:SignatureValue>".len();
+        let novo = if &xml[inicio..inicio + 1] == "A" {
+            "B"
+        } else {
+            "A"
+        };
+        let invalido = format!("{}{novo}{}", &xml[..inicio], &xml[inicio + 1..]);
+        assert_eq!(
+            verificar_com_perfil(
+                &Documento::parse(invalido.as_bytes()).expect("XML válido"),
+                PERFIL
+            ),
+            Err(ErroDsig::AssinaturaInvalida)
+        );
+    }
+
+    #[test]
+    fn assinante_sem_sha1_nao_dispara_fallback_para_sha256() {
+        struct ApenasSha256<'a>(&'a CertificadoA1);
+        impl Signer for ApenasSha256<'_> {
+            fn certificado_der(&self) -> &[u8] {
+                self.0.certificado_der()
+            }
+            fn assinar_rsa_sha256(&self, _dados: &[u8]) -> Result<Vec<u8>, ErroDsig> {
+                panic!("não deve tentar SHA-256 quando foi pedido SHA-1");
+            }
+        }
+        let a1 = a1("nfe-sem-fallback");
+        assert!(matches!(
+            assinar_com_perfil(&nfe(), ID_NFE, &ApenasSha256(&a1.certificado), PERFIL),
+            Err(ErroDsig::Assinante(_))
+        ));
+    }
+}
