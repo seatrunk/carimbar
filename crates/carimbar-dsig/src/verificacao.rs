@@ -1,10 +1,9 @@
 use crate::erro::ErroDsig;
-use crate::{ALG_C14N, ALG_ENVELOPED, ALG_RSA_SHA256, ALG_SHA256, NS_DSIG};
+use crate::{ALG_C14N, ALG_ENVELOPED, NS_DSIG, PerfilAssinatura};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use carimbar_xml::{Caminho, Documento};
-use ring::signature::{RSA_PKCS1_2048_8192_SHA256, UnparsedPublicKey};
-use sha2::{Digest, Sha256};
+use ring::signature::UnparsedPublicKey;
 use x509_parser::prelude::{FromDer, X509Certificate};
 
 /// Resultado de uma verificação XMLDSig bem-sucedida.
@@ -38,6 +37,15 @@ impl Verificacao {
 /// valida a cadeia do certificado, a validade no tempo nem a revogação. Isso
 /// cabe a quem usa o resultado, com `carimbar-cert` e a política de confiança.
 pub fn verificar(documento: &Documento) -> Result<Verificacao, ErroDsig> {
+    verificar_com_perfil(documento, PerfilAssinatura::Sha256)
+}
+
+/// Verifica somente o perfil escolhido, sem aceitar downgrade por URIs do XML.
+/// As regras de referência e confiança são as mesmas de [`verificar`].
+pub fn verificar_com_perfil(
+    documento: &Documento,
+    perfil: PerfilAssinatura,
+) -> Result<Verificacao, ErroDsig> {
     documento.to_xml()?;
     let assinaturas: Vec<Caminho> = documento
         .caminhos_por_local("Signature")
@@ -71,7 +79,7 @@ pub fn verificar(documento: &Documento) -> Result<Verificacao, ErroDsig> {
         documento,
         &metodo_assinatura,
         "SignatureMethod",
-        ALG_RSA_SHA256,
+        perfil.assinatura_uri(),
     )?;
 
     let referencia = filho_unico(documento, &caminho_info, "Reference")?;
@@ -92,7 +100,12 @@ pub fn verificar(documento: &Documento) -> Result<Verificacao, ErroDsig> {
         exigir_algoritmo(documento, transform, "Transform", algoritmo)?;
     }
     let metodo_digest = filho_unico(documento, &referencia, "DigestMethod")?;
-    exigir_algoritmo(documento, &metodo_digest, "DigestMethod", ALG_SHA256)?;
+    exigir_algoritmo(
+        documento,
+        &metodo_digest,
+        "DigestMethod",
+        perfil.digest_uri(),
+    )?;
 
     let caminho_alvo = {
         let mut caminhos = documento.caminhos_por_atributo("Id", id);
@@ -126,7 +139,8 @@ pub fn verificar(documento: &Documento) -> Result<Verificacao, ErroDsig> {
         &texto_do_filho(documento, &referencia, "DigestValue")?,
         "DigestValue",
     )?;
-    let digest_calculado = Sha256::digest(documento.canonicalizar_subarvore(&caminho_alvo)?);
+    let digest_calculado =
+        perfil.digest(documento.canonicalizar_subarvore(&caminho_alvo)?.as_bytes());
     if digest_calculado.as_slice() != digest_esperado.as_slice() {
         return Err(ErroDsig::DigestDivergente);
     }
@@ -153,7 +167,7 @@ pub fn verificar(documento: &Documento) -> Result<Verificacao, ErroDsig> {
         "SignatureValue",
     )?;
     let info_canonico = documento.canonicalizar_subarvore(&caminho_info)?;
-    UnparsedPublicKey::new(&RSA_PKCS1_2048_8192_SHA256, &chave_publica)
+    UnparsedPublicKey::new(perfil.verificador(), &chave_publica)
         .verify(info_canonico.as_bytes(), &valor)
         .map_err(|_| ErroDsig::AssinaturaInvalida)?;
 

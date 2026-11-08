@@ -13,6 +13,10 @@ keywords.workspace = true
 categories.workspace = true
 include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
+[features]
+default = []
+nfe-sha1 = ["carimbar-cert/nfe-sha1"]
+
 [dependencies]
 base64 = "0.22"
 carimbar-cert.workspace = true

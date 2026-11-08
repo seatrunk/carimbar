@@ -1,9 +1,8 @@
 use crate::erro::ErroDsig;
-use crate::{ALG_C14N, ALG_ENVELOPED, ALG_RSA_SHA256, ALG_SHA256, NS_DSIG};
+use crate::{ALG_C14N, ALG_ENVELOPED, NS_DSIG, PerfilAssinatura};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use carimbar_xml::{Caminho, Documento, Elemento, No, Nome};
-use sha2::{Digest, Sha256};
 
 /// Assinante de documentos XMLDSig.
 ///
@@ -15,6 +14,15 @@ pub trait Signer {
 
     /// Assina `dados` com RSASSA-PKCS1-v1_5 e SHA-256.
     fn assinar_rsa_sha256(&self, dados: &[u8]) -> Result<Vec<u8>, ErroDsig>;
+
+    /// Assina RSA-SHA1 exclusivamente para o contrato legado da NF-e.
+    /// Implementações existentes recusam esse perfil até habilitá-lo de propósito.
+    #[cfg(feature = "nfe-sha1")]
+    fn assinar_rsa_sha1_nfe(&self, _dados: &[u8]) -> Result<Vec<u8>, ErroDsig> {
+        Err(ErroDsig::Assinante(
+            "assinante não suporta RSA-SHA1 da NF-e".to_owned(),
+        ))
+    }
 }
 
 impl Signer for carimbar_cert::CertificadoA1 {
@@ -24,6 +32,12 @@ impl Signer for carimbar_cert::CertificadoA1 {
 
     fn assinar_rsa_sha256(&self, dados: &[u8]) -> Result<Vec<u8>, ErroDsig> {
         carimbar_cert::CertificadoA1::assinar_rsa_sha256(self, dados)
+            .map_err(|erro| ErroDsig::Assinante(erro.to_string()))
+    }
+
+    #[cfg(feature = "nfe-sha1")]
+    fn assinar_rsa_sha1_nfe(&self, dados: &[u8]) -> Result<Vec<u8>, ErroDsig> {
+        carimbar_cert::CertificadoA1::assinar_rsa_sha1_nfe(self, dados)
             .map_err(|erro| ErroDsig::Assinante(erro.to_string()))
     }
 }
@@ -39,6 +53,18 @@ pub fn assinar(
     documento: &Documento,
     id: &str,
     assinante: &dyn Signer,
+) -> Result<Documento, ErroDsig> {
+    assinar_com_perfil(documento, id, assinante, PerfilAssinatura::Sha256)
+}
+
+/// Assina com o perfil informado, preservando as validações de [`assinar`].
+/// RSA-SHA1 só é disponível com `nfe-sha1` e seleção de `PerfilAssinatura::NfeSha1`.
+/// Não tenta outro algoritmo quando o assinante ou backend falha.
+pub fn assinar_com_perfil(
+    documento: &Documento,
+    id: &str,
+    assinante: &dyn Signer,
+    perfil: PerfilAssinatura,
 ) -> Result<Documento, ErroDsig> {
     // Valida também árvores construídas pela API, antes de resolver IDs/namespaces.
     documento.to_xml()?;
@@ -71,7 +97,8 @@ pub fn assinar(
         ));
     }
 
-    let digest = STANDARD.encode(Sha256::digest(documento.canonicalizar_subarvore(&alvo)?));
+    let digest =
+        STANDARD.encode(perfil.digest(documento.canonicalizar_subarvore(&alvo)?.as_bytes()));
     let certificado = STANDARD.encode(assinante.certificado_der());
 
     let mut rascunho = documento.clone();
@@ -83,10 +110,15 @@ pub fn assinar(
             &digest,
             &certificado,
             None,
+            perfil,
         )));
     let indice = rascunho.raiz().filhos().len() - 1;
     let info = rascunho.canonicalizar_subarvore(&[indice, 0])?;
-    let valor = assinante.assinar_rsa_sha256(info.as_bytes())?;
+    let valor = match perfil {
+        PerfilAssinatura::Sha256 => assinante.assinar_rsa_sha256(info.as_bytes())?,
+        #[cfg(feature = "nfe-sha1")]
+        PerfilAssinatura::NfeSha1 => assinante.assinar_rsa_sha1_nfe(info.as_bytes())?,
+    };
 
     let mut assinado = documento.clone();
     assinado
@@ -97,6 +129,7 @@ pub fn assinar(
             &digest,
             &certificado,
             Some(&STANDARD.encode(valor)),
+            perfil,
         )));
     Ok(assinado)
 }
@@ -113,7 +146,13 @@ pub(crate) fn alvo_unico(documento: &Documento, id: &str) -> Result<Caminho, Err
     }
 }
 
-fn montar_assinatura(id: &str, digest: &str, certificado: &str, valor: Option<&str>) -> Elemento {
+fn montar_assinatura(
+    id: &str,
+    digest: &str,
+    certificado: &str,
+    valor: Option<&str>,
+    perfil: PerfilAssinatura,
+) -> Elemento {
     let ds = |local: &str| Nome::com_prefixo("ds", local);
     let algoritmo =
         |local: &str, uri: &str| Elemento::new(ds(local)).com_atributo_texto("Algorithm", uri);
@@ -125,11 +164,14 @@ fn montar_assinatura(id: &str, digest: &str, certificado: &str, valor: Option<&s
     let referencia = Elemento::new(ds("Reference"))
         .com_atributo_texto("URI", format!("#{id}"))
         .com_filho(No::Elemento(transforms))
-        .com_filho(No::Elemento(algoritmo("DigestMethod", ALG_SHA256)))
+        .com_filho(No::Elemento(algoritmo("DigestMethod", perfil.digest_uri())))
         .com_filho(No::Elemento(texto("DigestValue", digest)));
     let info = Elemento::new(ds("SignedInfo"))
         .com_filho(No::Elemento(algoritmo("CanonicalizationMethod", ALG_C14N)))
-        .com_filho(No::Elemento(algoritmo("SignatureMethod", ALG_RSA_SHA256)))
+        .com_filho(No::Elemento(algoritmo(
+            "SignatureMethod",
+            perfil.assinatura_uri(),
+        )))
         .com_filho(No::Elemento(referencia));
 
     let valor_elemento = match valor {
