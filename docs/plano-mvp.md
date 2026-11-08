@@ -27,7 +27,7 @@ Cada issue pode resultar em vários PRs pequenos.
 
 Confirmar versões oficiais, ambientes e decisões da arquitetura; recuperar a publicação inicial em uma frente independente.
 
-- [ ] [#5](https://github.com/seatrunk/carimbar/issues/5) — Documentar contratos fiscais, arquitetura e limites do MVP.
+- [x] [#5](https://github.com/seatrunk/carimbar/issues/5) — Documentar contratos fiscais, arquitetura e limites do MVP.
 - [ ] [#6](https://github.com/seatrunk/carimbar/issues/6) — Concluir e tornar recuperável a publicação inicial 0.0.1.
 
 Critério do marco: Contratos e limites documentados; procedimento de release verificável. A publicação 0.0.1 não é condição para começar o desenvolvimento nem comprova prontidão fiscal.
@@ -36,7 +36,7 @@ Critério do marco: Contratos e limites documentados; procedimento de release ve
 
 Implementar XML e leitura segura de A1; integrar XMLDSig depois que suas duas dependências estiverem prontas.
 
-- [ ] [#7](https://github.com/seatrunk/carimbar/issues/7) — Implementar leitura, escrita, canonicalização e validação XSD de XML fiscal.
+- [x] [#7](https://github.com/seatrunk/carimbar/issues/7) — Implementar leitura, escrita, canonicalização e validação XSD de XML fiscal.
 - [ ] [#8](https://github.com/seatrunk/carimbar/issues/8) — Implementar leitura segura e validação de certificados A1 PKCS#12.
 - [ ] [#9](https://github.com/seatrunk/carimbar/issues/9) — Implementar assinatura e verificação XMLDSig interoperáveis.
 

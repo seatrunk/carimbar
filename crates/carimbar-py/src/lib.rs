@@ -1,7 +1,8 @@
 //! Binding Python (PyO3 + maturin, abi3-py39). API síncrona no 0.1; async na 0.2 (D6).
 //!
 //! Status: esqueleto. Expõe só validações de `carimbar-types` para provar o
-//! build do wheel. A API completa (`Cofre`, `Emissor`) chega na Etapa 10.
+//! build do wheel. A API completa (`Cofre`, `Emissor`) chega na Etapa 6
+//! (`docs/plano-mvp.md`, issue #20).
 
 use pyo3::prelude::*;
 

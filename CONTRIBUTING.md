@@ -16,6 +16,7 @@ O CI (`.github/workflows/ci.yml`) roda os mesmos passos em todo PR.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+cargo test -p carimbar-xml --features xsd
 cargo deny check
 (cd crates/carimbar-py && maturin build)
 ./scripts/check-no-certs.sh
