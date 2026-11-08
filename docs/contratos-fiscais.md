@@ -24,7 +24,7 @@ domínio conhece CLI, MCP ou Python.
 | `carimbar-dsig` | XMLDSig enveloped, assinatura e verificação | RSA-SHA256 padrão; NF-e/RSA-SHA1 via feature opcional (#9) |
 | `carimbar-transport` | HTTP mTLS, SOAP 1.2 e JSON, timeouts e classificação de falhas | Implementado (#10); sem raízes embutidas |
 | `carimbar-endpoints` | Tabela UF × modelo × ambiente × serviço, versionada e datada | Implementado (#10); URLs conferidas em 2026-11-08 |
-| `carimbar-vault` | Cofre multiempresa, envelope encryption e auditoria | Pendente (#12) |
+| `carimbar-vault` | Cofre multiempresa, envelope encryption e auditoria | Implementado (#12); só os segredos são cifrados |
 | `carimbar-nfse` | DPS, NFSe, eventos, ADN e parametrização municipal | Pendente (#11, #14) |
 | `carimbar-nfe` | NF-e 4.00 com IBS/CBS, eventos e contingência SVC | Pendente (#18) |
 | `carimbar-danfe` | DANFSe e DANFE em PDF a partir do XML autorizado | Pendente (#15, #19) |
@@ -318,6 +318,41 @@ Limitações assumidas: sem proxy corporativo, sem OCSP/CRL e sem pin de
 certificado no MVP; a resolução DNS usa o resolvedor do sistema e não tem
 timeout próprio.
 
+## 6.3 Cofre multiempresa (#12)
+
+`carimbar-vault` guarda certificados A1 em SQLite local com envelope encryption
+e isolamento por empresa.
+
+- **DEK por empresa:** cada CNPJ tem uma chave de dados de 32 bytes. O PFX e a
+  senha do certificado são cifrados com AES-256-GCM sob essa DEK, com CNPJ,
+  identificador e versão no contexto autenticado; trocar empresa, identificador
+  ou versão faz a decifragem falhar.
+- **KEK fora do arquivo:** a chave mestra embrulha as DEKs e nunca é gravada.
+  Ela vem do chamador (`ChaveMestra::de_bytes`/`gerar`) ou é derivada de senha
+  com Argon2id; nesse caso o arquivo guarda apenas sal e custo, e reabrir com
+  senha errada retorna `ChaveIncorreta` sem decifrar registro algum.
+- **Metadados em claro:** CNPJ, identificador, titular, validade, SHA-256 do
+  certificado folha e a trilha de auditoria. PFX, senha, DEK e chave privada
+  ficam cifrados; o teste de repouso procura os bytes originais no `.db` depois
+  do checkpoint do WAL.
+- **Rotação:** `rotacionar_dek` gera nova DEK e recifra todos os certificados da
+  empresa na mesma transação; `rotacionar_kek` reembrulha as DEKs de todas as
+  empresas após validar a nova KEK. Em falha, o cofre permanece com a
+  configuração anterior e o teste injeta erro no meio do reembrulho para provar
+  que não sobra estado parcial.
+- **KMS opcional:** `ProvedorKek` é a interface mínima (`selar`/`abrir` com
+  AAD). Um provedor externo pode implementá-la; o MVP não traz integração
+  pronta nem keyring do sistema.
+- **Auditoria encadeada:** cada evento guarda o SHA-256 do anterior sobre campos
+  delimitados por tamanho. A cadeia detecta alteração de campo, remoção
+  intermediária e reordenação sem recálculo. Limites: não detecta remoção do
+  último registro nem reescrita completa da cadeia por quem tem escrita no
+  arquivo; para garantia mais forte, ancore o último hash fora do cofre.
+
+Limitações assumidas: o arquivo SQLite não é cifrado como um todo (apenas os
+segredos), o cofre é local e serializa escritas, e não substitui backup,
+replicação ou um KMS dedicado.
+
 ## 7. Decisões em aberto
 
 | Tema | Pendência | Issue |
@@ -328,7 +363,6 @@ timeout próprio.
 | Endpoints | Reconfirmar URLs antes de emitir; a tabela local tem fonte e data | #10 |
 | C14N | Validar vetores com `xmlsec1` e decidir se C14N 1.1 é necessária | #7 / #9 |
 | DANFE/DANFSe | Confirmar requisitos de leiaute e fonte de dados | #15 / #19 |
-| Vault | Definir formato do arquivo local e política de rotação de chave | #12 |
 | Python | Definir se a API inicial expõe só NFS-e ou também NF-e | #20 |
 
 ## 8. Fora do MVP

@@ -52,7 +52,15 @@ Critério do marco: XML validado por XSD e assinatura verificada por implementa�
 Implementar endpoints e mTLS, além do cofre local com isolamento por empresa. Ambas as entregas dependem de certificados; o cofre pode avançar assim que essa dependência estiver pronta.
 
 - [x] [#10](https://github.com/seatrunk/carimbar/issues/10) — Implementar endpoints versionados e transporte mTLS SOAP/JSON.
-- [ ] [#12](https://github.com/seatrunk/carimbar/issues/12) — Implementar cofre multiempresa com criptografia e auditoria.
+- [x] [#12](https://github.com/seatrunk/carimbar/issues/12) — Implementar cofre multiempresa com criptografia e auditoria.
+
+Entrega da #12: cofre SQLite com DEK por empresa em AES-256-GCM e KEK fora do
+arquivo (chamador ou Argon2id). Importação valida o título do A1 contra o CNPJ,
+listagem expõe só metadados públicos, e remoção/rotação de DEK e de KEK são
+transacionais. A auditoria é encadeada por SHA-256 com limites de detecção
+documentados. A interface `ProvedorKek` deixa KMS externo para incremento
+posterior. Testes usam PKI sintética e cobrem isolamento entre empresas,
+adulteração, rotação e falha de escrita.
 
 Entrega da #10: tabela de endpoints versionada e datada (`carimbar-endpoints`) e
 cliente HTTP/1.1 sobre mTLS (`carimbar-transport`) com SOAP 1.2 e JSON. O
