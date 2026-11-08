@@ -19,6 +19,8 @@ cargo test --workspace
 cargo test -p carimbar-xml --features xsd
 # carimbar-cert gera A1 sintético com o CLI openssl (presente no ubuntu-latest e no macOS).
 cargo test -p carimbar-cert
+# carimbar-dsig verifica assinaturas com o CLI xmlsec1 (apt install xmlsec1).
+cargo test -p carimbar-dsig
 cargo deny check
 (cd crates/carimbar-py && maturin build)
 ./scripts/check-no-certs.sh

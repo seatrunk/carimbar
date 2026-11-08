@@ -121,3 +121,55 @@ fn escrever_instrucao(alvo: &str, dados: &str, saida: &mut String) {
     }
     saida.push_str("?>");
 }
+
+/// Canonicaliza a subárvore do elemento em `caminho` (índices em `filhos()` a partir
+/// da raiz), no perfil inclusivo do C14N 1.0.
+///
+/// O elemento recebe os namespaces em escopo e os atributos no namespace XML
+/// do ancestral mais próximo. C14N 1.0 herda inclusive `xml:base` e `xml:id`;
+/// as regras especiais desses atributos pertencem ao C14N 1.1.
+pub(crate) fn canonicalizar_subarvore(
+    documento: &Documento,
+    caminho: &[usize],
+) -> Result<String, ErroXml> {
+    crate::validacao::validar(documento)?;
+    let mut ancestrais: Vec<&Elemento> = Vec::with_capacity(caminho.len());
+    let mut atual = &documento.raiz;
+    for indice in caminho {
+        ancestrais.push(atual);
+        atual = match atual.filhos().get(*indice) {
+            Some(No::Elemento(filho)) => filho,
+            _ => {
+                return Err(ErroXml::Estrutura(
+                    "caminho até o elemento é inválido".to_owned(),
+                ));
+            }
+        };
+    }
+
+    let mut escopo = BTreeMap::new();
+    escopo.insert("xml".to_owned(), URI_XML.to_owned());
+    for ancestral in &ancestrais {
+        for (prefixo, uri) in ancestral.declaracoes_namespace() {
+            escopo.insert(prefixo.unwrap_or("").to_owned(), uri.to_owned());
+        }
+    }
+
+    let mut apice = atual.clone();
+    for ancestral in ancestrais.iter().rev() {
+        for atributo in ancestral.atributos() {
+            let local = atributo.nome().local();
+            if eh_xml(atributo, local) && !apice.atributos().iter().any(|a| eh_xml(a, local)) {
+                apice = apice.com_atributo(atributo.nome().clone(), atributo.valor());
+            }
+        }
+    }
+
+    let mut saida = String::new();
+    escrever_elemento(&apice, &escopo, &BTreeMap::new(), &mut saida)?;
+    Ok(saida)
+}
+
+fn eh_xml(atributo: &crate::documento::Atributo, local: &str) -> bool {
+    atributo.nome().prefixo() == Some("xml") && atributo.nome().local() == local
+}

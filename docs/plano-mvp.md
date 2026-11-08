@@ -40,6 +40,10 @@ Implementar XML e leitura segura de A1; integrar XMLDSig depois que suas duas de
 - [ ] [#8](https://github.com/seatrunk/carimbar/issues/8) — Implementar leitura segura e validação de certificados A1 PKCS#12.
 - [ ] [#9](https://github.com/seatrunk/carimbar/issues/9) — Implementar assinatura e verificação XMLDSig interoperáveis.
 
+Entrega parcial da #9: RSA-SHA256 com interoperabilidade local via `xmlsec1`.
+O XSD NF-e vendorizado fixa RSA-SHA1/SHA-1; sua implementação permanece pendente,
+portanto a etapa 1 ainda não está concluída.
+
 Critério do marco: XML validado por XSD e assinatura verificada por implementação independente, com material de teste sintético.
 
 ### Etapa 2. Conectividade e cofre

@@ -44,6 +44,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
+      # carimbar-dsig verifica assinaturas com o xmlsec1 como ferramenta independente.
+      - run: sudo apt-get update && sudo apt-get install -y xmlsec1
       - run: cargo test --workspace --locked
 
   xml:
