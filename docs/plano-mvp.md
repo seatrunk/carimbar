@@ -51,8 +51,14 @@ Critério do marco: XML validado por XSD e assinatura verificada por implementa�
 
 Implementar endpoints e mTLS, além do cofre local com isolamento por empresa. Ambas as entregas dependem de certificados; o cofre pode avançar assim que essa dependência estiver pronta.
 
-- [ ] [#10](https://github.com/seatrunk/carimbar/issues/10) — Implementar endpoints versionados e transporte mTLS SOAP/JSON.
+- [x] [#10](https://github.com/seatrunk/carimbar/issues/10) — Implementar endpoints versionados e transporte mTLS SOAP/JSON.
 - [ ] [#12](https://github.com/seatrunk/carimbar/issues/12) — Implementar cofre multiempresa com criptografia e auditoria.
+
+Entrega da #10: tabela de endpoints versionada e datada (`carimbar-endpoints`) e
+cliente HTTP/1.1 sobre mTLS (`carimbar-transport`) com SOAP 1.2 e JSON. O
+transporte não embute raízes, recebe a identidade A1 e as raízes em DER, e
+separa `AntesDoEnvio` de `ResultadoDesconhecido` para não repetir emissão.
+Testes de integração usam PKI sintética e servidor TLS local.
 
 Critério do marco: Comunicação mTLS demonstrada com servidor local; certificado cifrado em repouso e recuperável apenas com a chave correta.
 
