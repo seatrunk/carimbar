@@ -31,4 +31,11 @@ Desde 01/11/2026, ME e EPP optantes pelo Simples Nacional são obrigadas a emiti
 
 ## Status
 
-Em planejamento. Ainda não há código.
+Fundação implementada: tipos de domínio, schemas oficiais com verificação de
+integridade, validações básicas no binding Python e infraestrutura de CI/release.
+Os módulos de emissão, cofre, PDFs, CLI e MCP ainda são stubs; não há emissão
+funcional de notas fiscais.
+
+O [plano de implementação do MVP](docs/plano-mvp.md) organiza as próximas etapas,
+dependências e critérios de conclusão, acompanhados pela
+[issue central #4](https://github.com/seatrunk/carimbar/issues/4).
