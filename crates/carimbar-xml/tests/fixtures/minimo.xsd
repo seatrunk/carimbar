@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="urn:carimbar:teste"
+           xmlns="urn:carimbar:teste"
+           elementFormDefault="qualified">
+  <xs:element name="nota">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="numero" type="xs:positiveInteger"/>
+        <xs:element name="valor" type="xs:decimal"/>
+      </xs:sequence>
+      <xs:attribute name="versao" use="required">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:pattern value="1\.00"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:attribute>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>
