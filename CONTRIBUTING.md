@@ -17,6 +17,8 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo test -p carimbar-xml --features xsd
+# carimbar-cert gera A1 sintético com o CLI openssl (presente no ubuntu-latest e no macOS).
+cargo test -p carimbar-cert
 cargo deny check
 (cd crates/carimbar-py && maturin build)
 ./scripts/check-no-certs.sh
