@@ -15,8 +15,18 @@ include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
 carimbar-types.workspace = true
+carimbar-cert.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+zeroize = "1"
+aes-gcm = "0.11"
+argon2 = "0.6"
+getrandom = "0.4"
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 [dev-dependencies]
+rusqlite = { version = "0.40", features = ["bundled"] }
+zeroize = "1"
 
 [lints]
 workspace = true
