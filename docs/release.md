@@ -93,8 +93,14 @@ do alvo, e cada uma tem um gerenciador de pacotes diferente:
 | Alvo | Imagem | Gerenciador |
 |---|---|---|
 | `linux-x86_64` (`manylinux: auto`) | manylinux (PyPA) | `dnf`/`yum` |
-| `linux-aarch64` (`manylinux: auto`) | `ghcr.io/rust-cross/manylinux2014-cross:aarch64` (Ubuntu) | `apt-get` |
+| `linux-aarch64` (`manylinux: 2_28`) | `ghcr.io/rust-cross/manylinux_2_28-cross:aarch64` (Ubuntu, gcc 7.5) | `apt-get` |
 | `musllinux-x86_64` (`musllinux_1_2`) | `ghcr.io/rust-cross/rust-musl-cross:x86_64-musl` (Ubuntu) | `apt-get` |
+
+O `linux-aarch64` fixa `manylinux_2_28` em vez de `auto` porque a imagem
+`manylinux2014-cross` traz gcc 4.8.5, que não define `__ARM_ARCH` e quebra o
+assembly do `ring` 0.17 com `#error "ARM assembler must define __ARM_ARCH"`. A
+imagem `2_28` tem gcc 7.5. Consequência: o wheel aarch64 exige **glibc >= 2.28**
+(distros mais antigas, como Ubuntu 18.04 com glibc 2.27, não instalam esse wheel).
 
 O `before-script-linux` detecta o gerenciador e instala Perl antes do build:
 

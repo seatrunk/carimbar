@@ -78,7 +78,10 @@ jobs:
           # PyPA), enquanto manylinux-cross (aarch64) e musllinux usam imagens
           # Ubuntu com apt. O before-script cobre todos os gerenciadores.
           - { name: linux-x86_64, os: ubuntu-latest, target: x86_64, manylinux: auto }
-          - { name: linux-aarch64, os: ubuntu-latest, target: aarch64, manylinux: auto }
+          # aarch64 fixa manylinux_2_28 (gcc 7.5): a imagem manylinux2014-cross
+          # traz gcc 4.8.5, que não define __ARM_ARCH e quebra o asm do ring
+          # 0.17. O wheel aarch64 passa a exigir glibc >= 2.28.
+          - { name: linux-aarch64, os: ubuntu-latest, target: aarch64, manylinux: 2_28 }
           - { name: musllinux-x86_64, os: ubuntu-latest, target: x86_64, manylinux: musllinux_1_2 }
           # Wheels separados em vez de universal2: o build universal2 do
           # maturin é frágil. macos-15-intel é o runner x86_64 atual; o

@@ -139,7 +139,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: linux-aarch64, target: aarch64, manylinux: auto }
+          - { name: linux-aarch64, target: aarch64, manylinux: 2_28 }
           - { name: musllinux-x86_64, target: x86_64, manylinux: musllinux_1_2 }
     steps:
       - uses: actions/checkout@v5
