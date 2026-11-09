@@ -1,5 +1,6 @@
 //! Erros da fachada e do journal.
 
+use carimbar_danfe::ErroDanfe;
 use carimbar_dsig::ErroDsig;
 use carimbar_nfse::ErroNfse;
 use carimbar_types::Cnpj;
@@ -23,6 +24,9 @@ pub enum ErroEmissor {
     /// Falha de assinatura.
     #[error("assinatura: {0}")]
     Assinatura(#[from] ErroDsig),
+    /// Falha na geração de PDF.
+    #[error("PDF: {0}")]
+    Danfe(#[from] ErroDanfe),
     /// Falha no journal local.
     #[error("journal: {0}")]
     Journal(String),

@@ -453,6 +453,27 @@ impl<'a> Emissor<'a> {
         }
     }
 
+    /// Gera o DANFSe de uma operação autorizada.
+    ///
+    /// O PDF é montado a partir do XML autorizado persistido no journal; não
+    /// há nova chamada à Sefin nem recálculo de tributos.
+    pub fn gerar_danfse(&self, id: i64) -> Result<Vec<u8>, ErroEmissor> {
+        let operacao = self.journal.operacao(id)?;
+        self.conferir_operacao(&operacao, TipoOperacao::EmitirNfse)?;
+        if operacao.estado != EstadoOperacao::Autorizada {
+            return Err(ErroEmissor::EstadoInvalido {
+                id,
+                estado: operacao.estado.as_str(),
+                acao: "gerar DANFSe",
+            });
+        }
+        let xml = operacao
+            .xml_retorno
+            .as_deref()
+            .ok_or_else(|| ErroEmissor::Journal("operação autorizada sem XML".to_owned()))?;
+        Ok(carimbar_danfe::gerar_danfse(xml)?)
+    }
+
     /// Consulta uma NFS-e pela chave.
     pub fn consultar_nfse(&self, chave: &ChaveNfse) -> Result<String, ErroEmissor> {
         let cliente = ClienteSefin::new(self.ambiente().tp_amb(), self.executor);

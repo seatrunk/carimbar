@@ -113,7 +113,7 @@ Critério do marco: Fluxo completo com transporte simulado pelas APIs públicas,
 
 Entregar DANFSe, CLI e MCP; iniciar a validação real de NFS-e por disparo manual protegido assim que fachada e CLI estiverem disponíveis.
 
-- [ ] [#15](https://github.com/seatrunk/carimbar/issues/15) — Gerar DANFSe em PDF a partir da NFS-e autorizada.
+- [x] [#15](https://github.com/seatrunk/carimbar/issues/15) — Gerar DANFSe em PDF a partir da NFS-e autorizada.
 - [ ] [#16](https://github.com/seatrunk/carimbar/issues/16) — Implementar CLI de emissão, consulta e administração de empresas.
 - [ ] [#17](https://github.com/seatrunk/carimbar/issues/17) — Implementar servidor MCP local com preparação e confirmação de operações.
 - [ ] [#21](https://github.com/seatrunk/carimbar/issues/21) — Validar o MVP ponta a ponta e criar homologação manual protegida.

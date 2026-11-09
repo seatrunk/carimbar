@@ -15,6 +15,10 @@ include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
 carimbar-types.workspace = true
+carimbar-xml.workspace = true
+printpdf = { version = "0.12", default-features = false }
+qrcode = { version = "0.14", default-features = false }
+thiserror.workspace = true
 
 [dev-dependencies]
 
