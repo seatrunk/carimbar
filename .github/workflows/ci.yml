@@ -67,8 +67,8 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - run: cargo test --workspace --all-features --locked
       - run: cargo publish --workspace --all-features --locked --dry-run
-      - run: rustup toolchain install 1.88 --profile minimal
-      - run: cargo +1.88 check -p carimbar-dsig --features nfe-sha1 --locked
+      - run: rustup toolchain install 1.89 --profile minimal
+      - run: cargo +1.89 check -p carimbar-dsig --features nfe-sha1 --locked
       - name: Confere que OpenSSL não entrou no grafo padrão
         run: |
           python3 - <<'PY'
@@ -81,9 +81,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - run: rustup toolchain install 1.88 --profile minimal
-      - run: cargo +1.88 check --workspace --locked
-      - run: cargo +1.88 check -p carimbar-xml --features xsd --locked
+      - run: rustup toolchain install 1.89 --profile minimal
+      - run: cargo +1.89 check --workspace --locked
+      - run: cargo +1.89 check -p carimbar-xml --features xsd --locked
 
   deny:
     runs-on: ubuntu-latest
