@@ -24,6 +24,13 @@ crates de apoio viraram **módulos de `carimbar` com features**; o `0.0.1` deles
 continua publicado, mas não recebe `0.0.2`. O único nome novo no crates.io é
 `carimbar-cli`. Isso evita criar oito nomes que ficariam reservados para sempre.
 
+### Mudança de comportamento (breaking): kill switch de produção
+
+Desde a #41, `KillSwitchAmbiente` só libera produção com `CARIMBAR_PRODUCAO=1`
+(depois de `trim()`). Antes, a ausência da variável liberava produção e apenas
+`0`/`false`/`nao` bloqueavam. Agora ausência, vazio e qualquer valor diferente de
+`1` bloqueiam produção (fail-closed). Isso precisa entrar nas notas da `0.0.2`.
+
 ## Grafo de features
 
 `carimbar` expõe os módulos `types`, `cert`, `endpoints`, `xml`, `dsig`,
@@ -137,8 +144,10 @@ cria crate novo.
 
 ## Recuperação de release parcial
 
-Nunca crie uma tag nova para recuperar. O workflow aceita `workflow_dispatch` com
-o nome da tag existente e republica só o que falta.
+O re-disparo com `workflow_dispatch` na ref da tag existente serve para **falha
+transitória** (429, erro de rede, artefato parcial): ele republica só o que falta
+e executa o **workflow e os scripts gravados na própria tag**. Defeito no
+workflow ou nos scripts exige uma tag nova, que é decisão do Ricardo.
 
 **Atenção:** os environments `crates-io` e `pypi` só aceitam **tags `v*`**. A
 branch `main` foi removida das regras. Por isso o re-disparo manual tem de ser
@@ -182,10 +191,12 @@ tag. Não é preciso apagar nem renomear artefatos.
 
 ### Wheels ou smokes falharam
 
-Os artefatos ficam no run. Corrija o workflow em `main`, faça merge, e rode de
-novo o `workflow_dispatch` **com a ref da tag** existente. O job `verificar`
-continua exigindo que a tag aponte para a versão do workspace; o código publicado
-é o da tag, mas os scripts e a matriz de build vêm de `main`.
+Os artefatos ficam no run. Para falha transitória, rode o `workflow_dispatch` de
+novo **com a ref da tag** existente. Como `--ref vX` executa o commit da tag, o
+workflow e os scripts são os da tag: uma correção que só exista em `main` não é
+usada. Se o defeito estiver no workflow ou nos scripts, é preciso uma tag nova
+(decisão do Ricardo); não reutilize a `v0.0.2` forçando a ref. O job `verificar`
+continua exigindo que a tag aponte para a versão do workspace.
 
 ### Regras de environment
 

@@ -11,7 +11,7 @@ documentation = "https://docs.rs/carimbar"
 readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
-include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
+include = ["src/**/*.rs", "examples/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [features]
 default = ["fachada"]
@@ -23,9 +23,9 @@ fachada = ["cert", "endpoints", "xml", "dsig", "transport", "vault", "danfe", "n
 cert = ["dep:p12-keystore", "dep:ring", "dep:x509-parser", "dep:zeroize"]
 endpoints = []
 xml = ["dep:quick-xml"]
-dsig = ["cert", "xml", "dep:base64"]
+dsig = ["cert", "xml", "dep:base64", "dep:sha2"]
 transport = ["cert", "dep:rustls", "dep:rustls-pki-types"]
-vault = ["cert", "dep:aes-gcm", "dep:argon2", "dep:getrandom", "dep:rusqlite"]
+vault = ["cert", "dep:aes-gcm", "dep:argon2", "dep:getrandom", "dep:rusqlite", "dep:sha2"]
 danfe = ["xml", "dep:barcoders", "dep:printpdf", "dep:qrcode"]
 nfse = ["dsig", "endpoints", "transport", "xml", "dep:flate2", "dep:serde_json"]
 nfe = ["nfse", "dsig", "endpoints", "transport", "xml"]
@@ -38,7 +38,7 @@ nfe-sha1-vendored = ["nfe-sha1", "openssl/vendored"]
 
 [dependencies]
 rust_decimal.workspace = true
-sha2.workspace = true
+sha2 = { workspace = true, optional = true }
 thiserror.workspace = true
 p12-keystore = { version = "0.4.1", optional = true }
 ring = { version = "0.17", optional = true }
@@ -62,6 +62,7 @@ serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
 serde_json = "1"
+sha2.workspace = true
 
 [lints]
 workspace = true

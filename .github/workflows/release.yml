@@ -278,7 +278,8 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag || github.ref }}
-      # O script de publicação vem do commit do workflow (pode ser mais novo que a tag).
+      # Checks out o mesmo ref do workflow: no re-disparo com `--ref vX`, o
+      # script vem da tag (não de `main`).
       - uses: actions/checkout@v5
         with:
           path: .release-tools

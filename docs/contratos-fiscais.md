@@ -177,7 +177,7 @@ DTD. Isso é intencional: XML fiscal não deve carregar DTD.
 sem comentários e validação XSD opcional (feature `xsd`).
 
 Decisão sobre schemas em pacotes distribuídos: **os XSD oficiais não são
-embutidos no crate publicado**. `carimbar_xml::xsd::validar` recebe o caminho do
+embutidos no crate publicado**. `carimbar::xml::xsd::validar` recebe o caminho do
 XSD principal e resolve `xs:include`/`xs:import` relativos a ele. Aplicações e o
 workspace vendorizam o pacote oficial em `schemas/<pacote>/` com `SHA256SUMS`; o
 teste `crates/carimbar/tests/xml_schemas_sha256.rs` verifica a integridade no CI. Isso
@@ -218,7 +218,7 @@ Decisões desta etapa:
   XML completo da NF-e pertencem à #18. Não há fallback nem detecção automática:
   `assinar`/`verificar` continuam exigindo SHA-256 mesmo com a feature ligada.
 - **Exceção de backend restrita ao legado.** `ring` não assina RSA-SHA1. Somente
-  a feature opcional a feature `nfe-sha1` (de `carimbar`) usa OpenSSL para essa operação;
+  a feature opcional `nfe-sha1` (de `carimbar`) usa OpenSSL para essa operação;
   SHA-256 e a verificação RSA de ambos os perfis permanecem no `ring`. A exceção
   de `openssl-sys` está registrada em `deny.toml`, com wrapper `openssl`, e o CI
   confere que o grafo padrão não contém OpenSSL. O build legado requer headers
@@ -283,7 +283,7 @@ resultado carrega versão do serviço, autorizador, fonte oficial e a data
   para distribuição por NSU, eventos por chave e DANFSe.
 - **Combinações não publicadas** retornam erro explícito: consulta de cadastro
   fora das UFs atendidas, contingência que não cobre a UF e serviço inexistente.
-- **Ambiente:** o `tpAmb` vem de `carimbar_types::Ambiente`; produção e
+- **Ambiente:** o `tpAmb` vem de `carimbar::types::Ambiente`; produção e
   homologação usam hosts distintos e um teste garante que a URL de produção não
   reaproveita host de homologação.
 - **Limite:** a tabela é dado, não homologação. Notas técnicas mudam URLs;
