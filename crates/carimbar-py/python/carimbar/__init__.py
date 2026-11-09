@@ -1,5 +1,39 @@
-"""carimbar: emissão de NF-e e NFS-e Nacional. Em desenvolvimento (etapa 1)."""
+"""carimbar: emissão de NF-e e NFS-e Nacional.
 
-from ._carimbar import __version__, validar_chave_acesso, validar_cnpj
+API síncrona. Dinheiro é sempre texto/Decimal; nenhum valor fiscal passa por
+``float``. Operações fiscais usam o journal e o cofre locais.
+"""
 
-__all__ = ["__version__", "validar_chave_acesso", "validar_cnpj"]
+from ._carimbar import (
+    Cofre,
+    Dinheiro,
+    Emissor,
+    ErroCarimbar,
+    ErroCofre,
+    ErroConflito,
+    ErroFiscal,
+    ErroProducao,
+    ErroTransporte,
+    ErroTransporteCarimbar,
+    ErroValidacao,
+    __version__,
+    validar_chave_acesso,
+    validar_cnpj,
+)
+
+__all__ = [
+    "Cofre",
+    "Dinheiro",
+    "Emissor",
+    "ErroCarimbar",
+    "ErroCofre",
+    "ErroConflito",
+    "ErroFiscal",
+    "ErroProducao",
+    "ErroTransporte",
+    "ErroTransporteCarimbar",
+    "ErroValidacao",
+    "__version__",
+    "validar_chave_acesso",
+    "validar_cnpj",
+]

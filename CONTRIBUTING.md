@@ -26,7 +26,7 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --all-features --locked
 cargo +1.89 check -p carimbar-dsig --features nfe-sha1 --locked
 cargo deny check
-(cd crates/carimbar-py && maturin build)
+(cd crates/carimbar-py && maturin build)  # feature nfe-sha1 com OpenSSL vendored
 ./scripts/check-no-certs.sh
 ./scripts/test-check-no-certs.sh
 ```

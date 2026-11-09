@@ -106,9 +106,10 @@ jobs:
           command: build
           args: --release --out dist
           manylinux: auto
-      - name: Instala o wheel e faz smoke test
+      - name: Instala o wheel e roda pytest
         run: |
-          pip install crates/carimbar-py/dist/*.whl
+          pip install pytest crates/carimbar-py/dist/*.whl
+          pytest crates/carimbar-py/tests -q
           python -c "import carimbar as c; assert c.validar_cnpj('00.000.001/0001-36'); assert not c.validar_cnpj('00000001000137'); print('ok', c.__version__)"
 
   package:

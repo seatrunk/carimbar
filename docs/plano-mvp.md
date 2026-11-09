@@ -153,7 +153,7 @@ Critério do marco: Fluxo NF-e integrado ao mesmo journal, cofre e controles de 
 
 Concluir a API síncrona Python, validar wheels/sdist e executar a matriz final de homologação. Uma API Python inicial de NFS-e pode ser entregue após a etapa 4; a issue só fecha com ambos os modelos.
 
-- [ ] [#20](https://github.com/seatrunk/carimbar/issues/20) — Expor Cofre e Emissor no Python com testes dos pacotes distribuídos.
+- [x] [#20](https://github.com/seatrunk/carimbar/issues/20) — Expor Cofre e Emissor no Python com testes dos pacotes distribuídos.
 - [ ] [#21](https://github.com/seatrunk/carimbar/issues/21) — Validar o MVP ponta a ponta e criar homologação manual protegida.
 
 Critério do marco: Rust, CLI, MCP e Python exercitam os fluxos suportados; os critérios de todas as entregas do MVP têm evidência verificável.
