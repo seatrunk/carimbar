@@ -44,8 +44,11 @@ ambiente está implementada com fonte e data de verificação (`carimbar-endpoin
 O transporte HTTP/1.1 sobre mTLS com SOAP 1.2 e JSON está implementado
 (`carimbar-transport`), sem raízes embutidas e sem reenvio cego de emissão. O
 cofre multiempresa (`carimbar-vault`) implementa envelope encryption com DEK por
-empresa, KEK fora do arquivo, rotação e auditoria encadeada. Emissão, PDFs, CLI e
-MCP ainda são stubs; **não há emissão funcional de notas fiscais**.
+empresa, KEK fora do arquivo, rotação e auditoria encadeada. O modelo de DPS, o
+pedido de cancelamento e o cliente Sefin para emissão, consulta de NFS-e/DPS e
+eventos estão implementados (`carimbar-nfse`), com assinatura XMLDSig e validação
+XSD nos testes. Ainda não há homologação real: Emissor/journal, PDFs, CLI e MCP
+continuam stubs e **não há emissão funcional homologada de notas fiscais**.
 
 O [plano de implementação do MVP](docs/plano-mvp.md) organiza as etapas,
 dependências e critérios de conclusão, acompanhados pela

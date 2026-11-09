@@ -25,7 +25,7 @@ domínio conhece CLI, MCP ou Python.
 | `carimbar-transport` | HTTP mTLS, SOAP 1.2 e JSON, timeouts e classificação de falhas | Implementado (#10); sem raízes embutidas |
 | `carimbar-endpoints` | Tabela UF × modelo × ambiente × serviço, versionada e datada | Implementado (#10); URLs conferidas em 2026-11-08 |
 | `carimbar-vault` | Cofre multiempresa, envelope encryption e auditoria | Implementado (#12); só os segredos são cifrados |
-| `carimbar-nfse` | DPS, NFSe, eventos, ADN e parametrização municipal | Pendente (#11, #14) |
+| `carimbar-nfse` | DPS, NFS-e, eventos, ADN e parametrização municipal | DPS, emissão, consulta e cancelamento (#11); ADN e parâmetros municipais em #14 |
 | `carimbar-nfe` | NF-e 4.00 com IBS/CBS, eventos e contingência SVC | Pendente (#18) |
 | `carimbar-danfe` | DANFSe e DANFE em PDF a partir do XML autorizado | Pendente (#15, #19) |
 | `carimbar` | Fachada `Emissor`, journal, idempotência e bloqueios de produção | Pendente (#13) |
@@ -352,6 +352,39 @@ e isolamento por empresa.
 Limitações assumidas: o arquivo SQLite não é cifrado como um todo (apenas os
 segredos), o cofre é local e serializa escritas, e não substitui backup,
 replicação ou um KMS dedicado.
+
+## 6.4 DPS, emissão e eventos da NFS-e (#11)
+
+`carimbar-nfse` monta a DPS v1.01, assina com XMLDSig SHA-256 e fala com as APIs
+JSON da Sefin Nacional.
+
+- **Id derivado:** o `Id` da DPS é calculado de município, tipo de inscrição,
+  inscrição federal, série, número e ambiente. Não existe campo separado que
+  possa divergir do XML. Em produção, CNPJ alfanumérico é recusado pelo padrão
+  publicado; na produção restrita ele é aceito.
+- **Diferença de pacotes:** a DPS de homologação inclui `<finNFSe>0</finNFSe>`,
+  que não existe no XSD de produção. A DPS de produção é validada contra o
+  pacote `nfse_v1.01_20260209` e a de homologação contra
+  `nfse_v1.01_20261020`.
+- **Assinatura:** perfil SHA-256 de `carimbar-dsig`, sobre `infDPS` (DPS) e
+  `infPedReg` (evento). A chave privada continua fora do crate.
+- **API:** requisições `POST /nfse` e `POST /nfse/{chave}/eventos` levam o XML
+  em GZip/base64. A resposta é lida com limite de 8 MiB descompactados. O cliente
+  interpreta autorização, rejeição fiscal, duplicidade (HTTP 409) e resultado
+  desconhecido. Emissão nunca é repetida automaticamente; para reconciliar há
+  `GET /dps/{idDps}` e `GET /nfse/{chave}`.
+- **Eventos:** o MVP implementa o cancelamento (`e101101`). O `Id` do pedido é
+  `PRE` + chave + tipo, sem o número sequencial; o `EVT...` gerado pelo ambiente
+  não é produzido localmente.
+- **Limite do XSD restrito:** o `TSIdPedRegEvt` do pacote de produção restrita
+  de 2026-10-20 tem um padrão que rejeita o Id documentado para CNPJs cujo
+  terceiro dígito não é 1 ou 2. O pacote de produção corrigiu o padrão para
+  `PRE[0-9]{56}`. Os testes validam a estrutura do pedido contra o pacote de
+  produção e registram essa divergência; a emissão real de eventos continua no
+  fluxo manual de homologação (#21).
+- **Escopo:** endereço, telefone, comércio exterior, obra, evento, benefício
+  municipal e os grupos de crédito presumido/diferimento do IBS/CBS não estão
+  modelados nesta entrega.
 
 ## 7. Decisões em aberto
 

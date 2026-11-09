@@ -74,9 +74,17 @@ Critério do marco: Comunicação mTLS demonstrada com servidor local; certifica
 
 Construir DPS, emissão, consulta e eventos; integrar Emissor, journal, idempotência e bloqueios de produção; acrescentar parâmetros municipais e sincronização ADN.
 
-- [ ] [#11](https://github.com/seatrunk/carimbar/issues/11) — Implementar DPS e emissão, consulta e eventos da NFS-e Nacional.
+- [x] [#11](https://github.com/seatrunk/carimbar/issues/11) — Implementar DPS e emissão, consulta e eventos da NFS-e Nacional.
 - [ ] [#13](https://github.com/seatrunk/carimbar/issues/13) — Implementar Emissor, journal, idempotência e bloqueios de produção.
 - [ ] [#14](https://github.com/seatrunk/carimbar/issues/14) — Implementar distribuição ADN por NSU e parametrização municipal.
+
+Entrega da #11: modelo da DPS v1.01 com Id derivado dos campos, diferenças de
+produção e produção restrita, grupos obrigatórios e IBS/CBS, serialização na
+ordem do XSD e assinatura XMLDSig SHA-256. O cliente Sefin envia GZip/base64,
+interpreta autorização, rejeição, duplicidade e resultado desconhecido, e expõe
+consulta de NFS-e e de DPS para reconciliação. O cancelamento é o evento
+implementado; os demais tipos de evento ficam para incremento. Testes usam
+respostas simuladas e os XSD oficiais, sem acessar Sefin/ADN.
 
 Critério do marco: Fluxo completo com transporte simulado pelas APIs públicas, persistência e retomada; timeout não gera reenvio cego nem nota duplicada.
 
