@@ -108,9 +108,9 @@ jobs:
           manylinux: auto
           before-script-linux: |
             if command -v dnf >/dev/null 2>&1; then
-              dnf install -y perl-IPC-Cmd
+              dnf install -y perl-IPC-Cmd perl-Time-Piece
             else
-              yum install -y perl-IPC-Cmd
+              yum install -y perl-IPC-Cmd perl-Time-Piece
             fi
       - name: Instala o wheel e roda pytest
         run: |
