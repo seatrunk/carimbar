@@ -30,7 +30,7 @@ domínio conhece CLI, MCP ou Python.
 | `carimbar-danfe` | DANFSe e DANFE em PDF a partir do XML autorizado | DANFSe implementado (#15); DANFE em #19 |
 | `carimbar` | Fachada `Emissor`, journal, idempotência e bloqueios de produção | Implementado (#13); NFS-e pela fachada |
 | `carimbar-cli` | CLI local | Implementado (#16) |
-| `carimbar-mcp` | MCP local em duas fases (`preparar_*`/`confirmar_*`) | Pendente (#17) |
+| `carimbar-mcp` | MCP local em duas fases (`preparar_*`/`confirmar_*`) | Implementado (#17) |
 | `carimbar-py` | Binding Python síncrono | Esqueleto; API completa em #20 |
 
 Decisões transversais já registradas no código:
@@ -482,6 +482,31 @@ O binário `carimbar` reutiliza a fachada e o cofre; não duplica regras fiscais
   switch.
 - **Limites:** a CLI só emite NFS-e neste momento; NF-e entra na #18. O
   transporte real exige `CARIMBAR_RAIZES` com raízes DER.
+
+
+## 6.9 Servidor MCP local (#17)
+
+`carimbar-mcp` expõe a fachada por stdio usando `rmcp`.
+
+- **Ferramentas:** `preparar_emissao`, `confirmar_emissao`, `consultar_nfse`,
+  `preparar_cancelamento`, `confirmar_cancelamento`, `gerar_danfse`,
+  `sincronizar_adn`, `consultar_convenio`, `consultar_aliquota` e
+  `estado_operacao`.
+- **Duas fases:** `preparar_*` valida e persiste a operação na fachada, sem
+  enviar, e devolve um token. O token carrega empresa, ambiente e o conteúdo
+  exato; `confirmar_*` só aceita aquele conteúdo.
+- **Token:** uso único, TTL padrão de 300 s (`CARIMBAR_MCP_TTL_SEGUNDOS`),
+  removido antes da execução. Reiniciar o processo invalida tokens pendentes.
+- **Produção:** além do kill switch, `confirmar_*` exige
+  `confirmar_producao=true`; sem isso o token continua válido para nova
+  tentativa com a confirmação correta.
+- **Administração:** nenhuma ferramenta importa certificado, promove empresa ou
+  expõe senha/chave. Essas ações ficam na CLI.
+- **stdout:** exclusivo do protocolo. Erros vão para stderr; os testes de
+  processo verificam que todas as linhas são JSON-RPC.
+- **Teste:** `tests/protocolo.rs` cobre `initialize` e `tools/list`; os testes
+  unitários cobrem fluxo completo com replay, expiração, uso único, gate de
+  produção e kill switch.
 
 ## 7. Decisões em aberto
 
