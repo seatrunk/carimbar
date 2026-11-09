@@ -12,26 +12,30 @@ Consulta às fontes oficiais: **2026-11-08**.
 
 ## 1. Arquitetura
 
-O workspace separa tipos puros, XML, criptografia, transporte, regras fiscais e
-interfaces. A direção das dependências é sempre para baixo; nenhuma camada de
-domínio conhece CLI, MCP ou Python.
+O workspace tem **dois crates publicáveis** (`carimbar` e `carimbar-cli`) e o
+binding `carimbar-py` (`publish = false`). Em `carimbar`, tipos puros, XML,
+criptografia, transporte, regras fiscais e a fachada são módulos encadeados pela
+ordem topológica; nenhuma camada de domínio conhece CLI, MCP ou Python.
 
-| Crate | Responsabilidade | Estado nesta etapa |
+| Módulo (em `carimbar`) | Responsabilidade | Estado nesta etapa |
 |---|---|---|
-| `carimbar-types` | CNPJ (numérico e alfanumérico), chave de acesso, ambiente, dinheiro em `Decimal`, erros de domínio | Implementado |
-| `carimbar-xml` | Leitura/escrita determinística, C14N 1.0 e validação XSD opcional | Em implementação (#7) |
-| `carimbar-cert` | PKCS#12 A1, cadeia X.509, validade, titular e chave privada protegida | Implementado (#8) |
-| `carimbar-dsig` | XMLDSig enveloped, assinatura e verificação | RSA-SHA256 padrão; NF-e/RSA-SHA1 via feature opcional (#9) |
-| `carimbar-transport` | HTTP mTLS, SOAP 1.2 e JSON, timeouts e classificação de falhas | Implementado (#10); sem raízes embutidas |
-| `carimbar-endpoints` | Tabela UF × modelo × ambiente × serviço, versionada e datada | Implementado (#10); URLs conferidas em 2026-11-08 |
-| `carimbar-vault` | Cofre multiempresa, envelope encryption e auditoria | Implementado (#12); só os segredos são cifrados |
-| `carimbar-nfse` | DPS, NFS-e, eventos, ADN e parametrização municipal | DPS, emissão, consulta e cancelamento (#11); ADN e parâmetros municipais (#14) |
-| `carimbar-nfe` | NF-e 4.00 com IBS/CBS, eventos e contingência SVC | Implementado (#18) |
-| `carimbar-danfe` | DANFSe e DANFE em PDF a partir do XML autorizado | DANFSe (#15) e DANFE (#19) implementados |
-| `carimbar` | Fachada `Emissor`, journal, idempotência e bloqueios de produção | Implementado (#13); NFS-e pela fachada |
-| `carimbar-cli` | CLI local | Implementado (#16) |
-| `carimbar-mcp` | MCP local em duas fases (`preparar_*`/`confirmar_*`) | Implementado (#17) |
-| `carimbar-py` | Binding Python síncrono | Implementado (#20); Cofre, Emissor, NFS-e/NF-e e PDFs |
+| `types` (sempre ligado) | CNPJ (numérico e alfanumérico), chave de acesso, ambiente, dinheiro em `Decimal`, erros de domínio | Implementado |
+| `xml` | Leitura/escrita determinística, C14N 1.0 e validação XSD opcional | Em implementação (#7) |
+| `cert` | PKCS#12 A1, cadeia X.509, validade, titular e chave privada protegida | Implementado (#8) |
+| `dsig` | XMLDSig enveloped, assinatura e verificação | RSA-SHA256 padrão; NF-e/RSA-SHA1 via feature opcional (#9) |
+| `transport` | HTTP mTLS, SOAP 1.2 e JSON, timeouts e classificação de falhas | Implementado (#10); sem raízes embutidas |
+| `endpoints` | Tabela UF × modelo × ambiente × serviço, versionada e datada | Implementado (#10); URLs conferidas em 2026-11-08 |
+| `vault` | Cofre multiempresa, envelope encryption e auditoria | Implementado (#12); só os segredos são cifrados |
+| `nfse` | DPS, NFS-e, eventos, ADN e parametrização municipal | DPS, emissão, consulta e cancelamento (#11); ADN e parâmetros municipais (#14) |
+| `nfe` | NF-e 4.00 com IBS/CBS, eventos e contingência SVC | Implementado (#18) |
+| `danfe` | DANFSe e DANFE em PDF a partir do XML autorizado | DANFSe (#15) e DANFE (#19) implementados |
+| fachada (`Emissor`, `Journal`, `ErroEmissor`) | journal, idempotência e bloqueios de produção | Implementado (#13); NFS-e pela fachada |
+
+| Crate | Conteúdo |
+|---|---|
+| `carimbar` | biblioteca com os módulos acima (features por módulo) |
+| `carimbar-cli` | CLI `carimbar` e servidor MCP `carimbar-mcp` (#16, #17) |
+| `carimbar-py` | binding Python síncrono (#20); `publish = false`, vai pelo PyPI |
 
 Decisões transversais já registradas no código:
 
@@ -169,14 +173,14 @@ DTD. Isso é intencional: XML fiscal não deve carregar DTD.
 
 ### 4.1 Implementação atual e schemas distribuídos
 
-`carimbar-xml` implementa leitura e escrita determinísticas, C14N 1.0 inclusiva
+`carimbar::xml` implementa leitura e escrita determinísticas, C14N 1.0 inclusiva
 sem comentários e validação XSD opcional (feature `xsd`).
 
 Decisão sobre schemas em pacotes distribuídos: **os XSD oficiais não são
 embutidos no crate publicado**. `carimbar_xml::xsd::validar` recebe o caminho do
 XSD principal e resolve `xs:include`/`xs:import` relativos a ele. Aplicações e o
 workspace vendorizam o pacote oficial em `schemas/<pacote>/` com `SHA256SUMS`; o
-teste `carimbar-xml/tests/schemas_sha256.rs` verifica a integridade no CI. Isso
+teste `crates/carimbar/tests/xml_schemas_sha256.rs` verifica a integridade no CI. Isso
 evita redistribuir schema oficial dentro de um pacote sem controle de versão e
 mantém o crate pequeno.
 
@@ -191,7 +195,7 @@ Evidência de interoperabilidade nesta etapa:
 
 ### 4.2 Perfis XMLDSig implementados (#9)
 
-`carimbar-dsig` assina e verifica os perfis abaixo. Qualquer outro algoritmo é recusado.
+`carimbar::dsig` assina e verifica os perfis abaixo. Qualquer outro algoritmo é recusado.
 
 | Item | Valor |
 |---|---|
@@ -214,7 +218,7 @@ Decisões desta etapa:
   XML completo da NF-e pertencem à #18. Não há fallback nem detecção automática:
   `assinar`/`verificar` continuam exigindo SHA-256 mesmo com a feature ligada.
 - **Exceção de backend restrita ao legado.** `ring` não assina RSA-SHA1. Somente
-  a feature opcional `carimbar-cert/nfe-sha1` usa OpenSSL para essa operação;
+  a feature opcional a feature `nfe-sha1` (de `carimbar`) usa OpenSSL para essa operação;
   SHA-256 e a verificação RSA de ambos os perfis permanecem no `ring`. A exceção
   de `openssl-sys` está registrada em `deny.toml`, com wrapper `openssl`, e o CI
   confere que o grafo padrão não contém OpenSSL. O build legado requer headers
@@ -226,7 +230,7 @@ Decisões desta etapa:
   pelo Sefin/SEFAZ. Emissão e homologação continuam nas #11, #18 e #21.
 - **Confiança não é verificada.** `verificar` prova integridade e autoria pela
   chave do certificado em `KeyInfo`. Cadeia, validade no tempo e revogação ficam
-  com quem usa o resultado (`carimbar-cert` e a política de confiança). O consumidor
+  com quem usa o resultado (`carimbar::cert` e a política de confiança). O consumidor
   também compara o `Id` verificado com o esperado e não trata irmãos do elemento
   referenciado como conteúdo autenticado.
 - **Chave privada fora do crate.** A assinatura passa pela trait `Signer`;
@@ -251,7 +255,7 @@ excedente. Assinar novamente um documento já assinado também é recusado.
 - A chave de acesso da NF-e e os identificadores da NFS-e usam os mesmos
   caracteres alfabéticos permitidos pelo contrato correspondente.
 
-O tipo `Cnpj` implementa e testa essas regras. O `carimbar-cert` (#8) já lê o
+O tipo `Cnpj` implementa e testa essas regras. O `carimbar::cert` (#8) já lê o
 CNPJ do titular pelo OID ICP-Brasil `2.16.76.1.3.3` e valida o vínculo na abertura.
 
 ## 6. Ambientes e segurança
@@ -269,7 +273,7 @@ CNPJ do titular pelo OID ICP-Brasil `2.16.76.1.3.3` e valida o vínculo na abert
 
 ## 6.1 Resolução de endpoints (#10)
 
-`carimbar-endpoints` resolve a URL localmente, sem rede e sem certificado. Cada
+`carimbar::endpoints` resolve a URL localmente, sem rede e sem certificado. Cada
 resultado carrega versão do serviço, autorizador, fonte oficial e a data
 `VERIFICADO_EM` (`2026-11-08`).
 
@@ -288,7 +292,7 @@ resultado carrega versão do serviço, autorizador, fonte oficial e a data
 
 ## 6.2 Transporte mTLS (#10)
 
-`carimbar-transport` executa a chamada HTTP sobre TLS mútuo, com a identidade
+`carimbar::transport` executa a chamada HTTP sobre TLS mútuo, com a identidade
 A1 e as raízes de confiança fornecidas pelo chamador em DER. Nenhuma raiz é
 embutida no crate, então o build não carrega a cadeia ICP-Brasil por conta
 própria.
@@ -321,7 +325,7 @@ timeout próprio.
 
 ## 6.3 Cofre multiempresa (#12)
 
-`carimbar-vault` guarda certificados A1 em SQLite local com envelope encryption
+`carimbar::vault` guarda certificados A1 em SQLite local com envelope encryption
 e isolamento por empresa.
 
 - **DEK por empresa:** cada CNPJ tem uma chave de dados de 32 bytes. O PFX e a
@@ -356,7 +360,7 @@ replicação ou um KMS dedicado.
 
 ## 6.4 DPS, emissão e eventos da NFS-e (#11)
 
-`carimbar-nfse` monta a DPS v1.01, assina com XMLDSig SHA-256 e fala com as APIs
+`carimbar::nfse` monta a DPS v1.01, assina com XMLDSig SHA-256 e fala com as APIs
 JSON da Sefin Nacional.
 
 - **Id derivado:** o `Id` da DPS é calculado de município, tipo de inscrição,
@@ -367,7 +371,7 @@ JSON da Sefin Nacional.
   que não existe no XSD de produção. A DPS de produção é validada contra o
   pacote `nfse_v1.01_20260209` e a de homologação contra
   `nfse_v1.01_20261020`.
-- **Assinatura:** perfil SHA-256 de `carimbar-dsig`, sobre `infDPS` (DPS) e
+- **Assinatura:** perfil SHA-256 de `carimbar::dsig`, sobre `infDPS` (DPS) e
   `infPedReg` (evento). A chave privada continua fora do crate.
 - **API:** requisições `POST /nfse` e `POST /nfse/{chave}/eventos` levam o XML
   em GZip/base64. A resposta é lida com limite de 8 MiB descompactados. O cliente
@@ -419,7 +423,7 @@ sem duplicar regras entre CLI, MCP e Python.
 
 ## 6.6 Distribuição ADN e parâmetros municipais (#14)
 
-`carimbar-nfse` implementa a distribuição de DF-e do ADN e a API de
+`carimbar::nfse` implementa a distribuição de DF-e do ADN e a API de
 parametrização municipal; a fachada persiste o cursor e os documentos.
 
 - **Distribuição:** `GET /contribuintes/DFe/{NSU}` aceita 400/404 com corpo
@@ -443,7 +447,7 @@ parametrização municipal; a fachada persiste o cursor e os documentos.
 
 ## 6.7 DANFSe em PDF (#15)
 
-`carimbar-danfe` gera o DANFSe offline a partir do XML da NFS-e autorizada.
+`carimbar::danfe` gera o DANFSe offline a partir do XML da NFS-e autorizada.
 
 - **Entrada:** exige raiz `NFSe` com `infNFSe` e `cStat` autorizado (`100` ou
   `101`). DPS isolada e XML com outro status são recusados.
@@ -513,7 +517,7 @@ O binário `carimbar` reutiliza a fachada e o cofre; não duplica regras fiscais
 
 ## 6.10 NF-e modelo 55 (#18)
 
-`carimbar-nfe` cobre o fluxo básico de NF-e 4.00 e os serviços SOAP da SEFAZ.
+`carimbar::nfe` cobre o fluxo básico de NF-e 4.00 e os serviços SOAP da SEFAZ.
 
 - **Modelo:** `NotaFiscal` com `ide`, emitente, destinatário, itens, totais,
   pagamento, informações complementares e grupos IBS/CBS. A chave de 44 posições
@@ -543,7 +547,7 @@ O binário `carimbar` reutiliza a fachada e o cofre; não duplica regras fiscais
 
 ## 6.11 DANFE em PDF (#19)
 
-`carimbar-danfe` gera o DANFE de uma NF-e autorizada (`nfeProc`).
+`carimbar::danfe` gera o DANFE de uma NF-e autorizada (`nfeProc`).
 
 - **Entrada:** exige `nfeProc` com `NFe` e `protNFe/infProt/cStat` `100` ou
   `101`. XML sem protocolo ou com outro status é recusado.

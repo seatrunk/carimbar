@@ -3,16 +3,16 @@
 use crate::replay::ReplayExecutor;
 #[cfg(feature = "nfe-sha1")]
 use carimbar::ResultadoNfe;
-use carimbar::{Emissor, ErroEmissor, Journal, ResultadoNfse};
-use carimbar_nfse::{
+use carimbar::nfse::{
     ChaveNfse, DataHoraFiscal, ErroNfse, EventoCancelamento, Executor, InscricaoFederal,
     MotivoCancelamento,
 };
-use carimbar_transport::{ClienteMtls, ErroEnvio, ErroTransporte, Opcoes, Requisicao, Resposta};
+use carimbar::transport::{ClienteMtls, ErroEnvio, ErroTransporte, Opcoes, Requisicao, Resposta};
 #[cfg(feature = "nfe-sha1")]
-use carimbar_types::ChaveAcesso;
-use carimbar_types::{Cnpj, ConfirmacaoProducao};
-use carimbar_vault::{ChaveMestra, Cofre};
+use carimbar::types::ChaveAcesso;
+use carimbar::types::{Cnpj, ConfirmacaoProducao};
+use carimbar::vault::{ChaveMestra, Cofre};
+use carimbar::{Emissor, ErroEmissor, Journal, ResultadoNfse};
 use clap::{Parser, Subcommand};
 use serde_json::{Value, json};
 use std::fmt;
@@ -107,20 +107,20 @@ impl From<ErroNfse> for ErroCli {
     }
 }
 
-impl From<carimbar_types::ErroTipo> for ErroCli {
-    fn from(erro: carimbar_types::ErroTipo) -> Self {
+impl From<carimbar::types::ErroTipo> for ErroCli {
+    fn from(erro: carimbar::types::ErroTipo) -> Self {
         Self::operacional(erro.to_string())
     }
 }
 
-impl From<carimbar_vault::ErroCofre> for ErroCli {
-    fn from(erro: carimbar_vault::ErroCofre) -> Self {
+impl From<carimbar::vault::ErroCofre> for ErroCli {
+    fn from(erro: carimbar::vault::ErroCofre) -> Self {
         Self::operacional(erro.to_string())
     }
 }
 
-impl From<carimbar_transport::ErroTransporte> for ErroCli {
-    fn from(erro: carimbar_transport::ErroTransporte) -> Self {
+impl From<carimbar::transport::ErroTransporte> for ErroCli {
+    fn from(erro: carimbar::transport::ErroTransporte) -> Self {
         Self::operacional(erro.to_string())
     }
 }
@@ -782,7 +782,7 @@ fn executar_fiscal(
                 forcar,
             } => {
                 let corpo = {
-                    let cliente = carimbar_nfse::ClienteParametros::new(
+                    let cliente = carimbar::nfse::ClienteParametros::new(
                         emissor.ambiente().tp_amb(),
                         executor.as_ref(),
                         None,

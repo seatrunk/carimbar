@@ -73,9 +73,8 @@ A publicação da versão `0.0.2` no crates.io e no PyPI ainda está pendente. E
 git clone https://github.com/seatrunk/carimbar.git
 cd carimbar
 
-# CLI e MCP com o perfil SHA-1 exigido pela NF-e
-cargo build --release -p carimbar-cli --features nfe-sha1
-cargo build --release -p carimbar-mcp --features nfe-sha1
+# CLI e MCP com o perfil SHA-1 exigido pela NF-e (os dois binários de carimbar-cli)
+cargo build --release -p carimbar-cli --bins --features nfe-sha1
 
 # Binding Python (wheel abi3, com OpenSSL vendored para NF-e/DANFE)
 cd crates/carimbar-py
@@ -92,6 +91,15 @@ pip install dist/*.whl
 | maturin | `>=1.9,<2` |
 
 O build Rust padrão não usa OpenSSL. A feature `nfe-sha1` é opt-in, e o wheel Python já a habilita com OpenSSL vendored.
+
+### Migração de crates (0.0.1 → 0.0.2)
+
+Os crates `carimbar-types`, `carimbar-cert`, `carimbar-endpoints` e
+`carimbar-danfe` 0.0.1 foram substituídos por `carimbar` com features: o que era
+`carimbar_types::X` agora é `carimbar::types::X` (com `carimbar` ligado por
+`default`), e assim por diante para `cert`, `endpoints`, `xml`, `dsig`,
+`transport`, `vault`, `danfe`, `nfse` e `nfe`. Os binários `carimbar` e
+`carimbar-mcp` agora saem de um único crate, `carimbar-cli`.
 
 ## Uso rápido
 

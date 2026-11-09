@@ -51,7 +51,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
-      # carimbar-dsig verifica assinaturas com o xmlsec1 como ferramenta independente.
+      # Os testes de assinatura conferem o XMLDSig com o xmlsec1 como ferramenta
+      # independente.
       - run: sudo apt-get update && sudo apt-get install -y xmlsec1
       - run: cargo test --workspace --locked
 
@@ -61,8 +62,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check -p carimbar-xml --no-default-features --locked
-      - run: cargo test -p carimbar-xml --features xsd --locked
+      - run: cargo check -p carimbar --no-default-features --features xml --locked
+      - run: cargo test -p carimbar --features xsd --locked
 
   nfe-sha1:
     # Exceção opcional de OpenSSL só para o perfil legado da NF-e.
@@ -75,7 +76,7 @@ jobs:
       - run: cargo test --workspace --all-features --locked
       - run: cargo publish --workspace --all-features --locked --dry-run
       - run: rustup toolchain install 1.89 --profile minimal
-      - run: cargo +1.89 check -p carimbar-dsig --features nfe-sha1 --locked
+      - run: cargo +1.89 check -p carimbar --no-default-features --features nfe-sha1 --locked
       - name: Confere que OpenSSL não entrou no grafo padrão
         run: |
           python3 - <<'PY'
@@ -90,7 +91,7 @@ jobs:
       - uses: actions/checkout@v5
       - run: rustup toolchain install 1.89 --profile minimal
       - run: cargo +1.89 check --workspace --locked
-      - run: cargo +1.89 check -p carimbar-xml --features xsd --locked
+      - run: cargo +1.89 check -p carimbar --no-default-features --features xsd --locked
 
   deny:
     runs-on: ubuntu-latest

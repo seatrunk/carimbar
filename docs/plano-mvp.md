@@ -70,8 +70,8 @@ documentados. A interface `ProvedorKek` deixa KMS externo para incremento
 posterior. Testes usam PKI sintética e cobrem isolamento entre empresas,
 adulteração, rotação e falha de escrita.
 
-Entrega da #10: tabela de endpoints versionada e datada (`carimbar-endpoints`) e
-cliente HTTP/1.1 sobre mTLS (`carimbar-transport`) com SOAP 1.2 e JSON. O
+Entrega da #10: tabela de endpoints versionada e datada (`carimbar::endpoints`) e
+cliente HTTP/1.1 sobre mTLS (`carimbar::transport`) com SOAP 1.2 e JSON. O
 transporte não embute raízes, recebe a identidade A1 e as raízes em DER, e
 separa `AntesDoEnvio` de `ResultadoDesconhecido` para não repetir emissão.
 Testes de integração usam PKI sintética e servidor TLS local.

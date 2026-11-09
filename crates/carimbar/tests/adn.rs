@@ -2,10 +2,10 @@
 
 use carimbar::Emissor;
 use carimbar::Journal;
-use carimbar_nfse::{Executor, comprimir_b64};
-use carimbar_transport::{ErroEnvio, ErroTransporte, Requisicao, Resposta};
-use carimbar_types::{Cnpj, TpAmb};
-use carimbar_vault::{ChaveMestra, Cofre};
+use carimbar::nfse::{Executor, comprimir_b64};
+use carimbar::transport::{ErroEnvio, ErroTransporte, Requisicao, Resposta};
+use carimbar::types::{Cnpj, TpAmb};
+use carimbar::vault::{ChaveMestra, Cofre};
 use std::sync::Mutex;
 
 const CNPJ: &str = "00000001000136";

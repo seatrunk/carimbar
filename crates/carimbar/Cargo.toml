@@ -14,24 +14,51 @@ categories.workspace = true
 include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [features]
-default = []
-nfe-sha1 = ["carimbar-nfe/nfe-sha1"]
-nfe-sha1-vendored = ["nfe-sha1", "carimbar-nfe/nfe-sha1-vendored"]
+default = ["fachada"]
+
+# Fachada `Emissor`/`Journal`/`ErroEmissor`: liga todos os módulos.
+fachada = ["cert", "endpoints", "xml", "dsig", "transport", "vault", "danfe", "nfse", "nfe"]
+
+# Módulos de domínio, encadeados pela ordem topológica. `types` é sempre ligado.
+cert = ["dep:p12-keystore", "dep:ring", "dep:x509-parser", "dep:zeroize"]
+endpoints = []
+xml = ["dep:quick-xml"]
+dsig = ["cert", "xml", "dep:base64"]
+transport = ["cert", "dep:rustls", "dep:rustls-pki-types"]
+vault = ["cert", "dep:aes-gcm", "dep:argon2", "dep:getrandom", "dep:rusqlite"]
+danfe = ["xml", "dep:barcoders", "dep:printpdf", "dep:qrcode"]
+nfse = ["dsig", "endpoints", "transport", "xml", "dep:flate2", "dep:serde_json"]
+nfe = ["nfse", "dsig", "endpoints", "transport", "xml"]
+
+# Validação XSD (opt-in); o schema não é embutido.
+xsd = ["xml", "dep:xsd-schema"]
+# RSA-SHA1 do contrato legado da NF-e (opt-in; OpenSSL não entra no grafo padrão).
+nfe-sha1 = ["nfe", "dep:openssl"]
+nfe-sha1-vendored = ["nfe-sha1", "openssl/vendored"]
 
 [dependencies]
-carimbar-cert.workspace = true
-carimbar-danfe.workspace = true
-carimbar-dsig.workspace = true
-carimbar-endpoints.workspace = true
-carimbar-nfe.workspace = true
-carimbar-nfse.workspace = true
-carimbar-transport.workspace = true
-carimbar-types.workspace = true
-carimbar-vault.workspace = true
-carimbar-xml.workspace = true
-rusqlite = { version = "0.41", features = ["bundled"] }
+rust_decimal.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
+p12-keystore = { version = "0.4.1", optional = true }
+ring = { version = "0.17", optional = true }
+x509-parser = { version = "0.18", optional = true }
+zeroize = { version = "1", optional = true }
+openssl = { version = "0.10", optional = true }
+quick-xml = { version = "0.42", default-features = false, optional = true }
+xsd-schema = { version = "0.3.1", default-features = false, optional = true }
+base64 = { version = "0.22", optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"], optional = true }
+rustls-pki-types = { version = "1", optional = true }
+aes-gcm = { version = "0.11", optional = true }
+argon2 = { version = "0.6", optional = true }
+getrandom = { version = "0.4", optional = true }
+rusqlite = { version = "0.41", features = ["bundled"], optional = true }
+barcoders = { version = "2", default-features = false, features = ["std"], optional = true }
+printpdf = { version = "0.12", default-features = false, optional = true }
+qrcode = { version = "0.14", default-features = false, optional = true }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"], optional = true }
+serde_json = { version = "1", optional = true }
 
 [dev-dependencies]
 serde_json = "1"
