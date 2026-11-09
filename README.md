@@ -3,7 +3,7 @@
 **Emissão direta de NF-e e NFS-e Nacional para devs e agentes de IA, sem provedor intermediário.**
 
 [![Licença: Apache-2.0](https://img.shields.io/badge/licen%C3%A7a-Apache--2.0-blue.svg)](LICENSE)
-[![M8ven Score](https://m8ven.ai/badge/mcp/seatrunk-carimbar-14so9i?v=87bf47fd8efaf5443d30ca65ffc0782a)](https://m8ven.ai/mcp/seatrunk-carimbar-14so9i?s=readme)![Status: pré-homologação](https://img.shields.io/badge/status-pr%C3%A9--homologa%C3%A7%C3%A3o-orange) 
+[![M8ven Score](https://m8ven.ai/badge/mcp/seatrunk-carimbar-14so9i)](https://m8ven.ai/mcp/seatrunk-carimbar-14so9i?s=readme)
 ![Rust](https://img.shields.io/badge/n%C3%BAcleo-Rust-b7410e)
 ![Python](https://img.shields.io/badge/binding-Python-3776ab)
 ![MCP](https://img.shields.io/badge/servidor-MCP-6f42c1)
