@@ -237,6 +237,28 @@ fn kill_switch_bloqueia_promocao_de_producao() {
 }
 
 #[test]
+fn promover_sem_carimbar_producao_bloqueia() {
+    // `comando()` remove `CARIMBAR_PRODUCAO`; a ausência da variável bloqueia.
+    let dir = diretorio("producao-ausente");
+    preparar_empresa(&dir);
+    let saida = rodar(&mut comando(
+        &dir,
+        &[
+            "--empresa",
+            CNPJ,
+            "empresa",
+            "promover",
+            "--id",
+            "a1",
+            "--confirmar",
+            CNPJ,
+        ],
+    ));
+    assert_eq!(saida.status.code(), Some(5));
+    assert!(String::from_utf8_lossy(&saida.stderr).contains("produção bloqueada"));
+}
+
+#[test]
 fn rejeicao_fiscal_tem_codigo_tres() {
     let dir = diretorio("rejeicao");
     preparar_empresa(&dir);

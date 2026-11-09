@@ -191,7 +191,7 @@ Importação de certificado, promoção de produção e segredos ficam exclusiva
 
 ## Segurança e produção
 
-- `CARIMBAR_PRODUCAO=0` bloqueia produção. A ausência da variável **não** promove a empresa.
+- Produção só é permitida com `CARIMBAR_PRODUCAO=1` (depois de `trim()`). Ausência, vazio, `0` e qualquer outro valor (`true`, `sim`, `2`, `off`, lixo) bloqueiam produção.
 - Promover uma empresa exige chamada explícita com o CNPJ e o certificado. Não existe promoção automática nem valor padrão.
 - O cofre cifra os segredos com uma DEK por empresa; a KEK fica fora do arquivo.
 - O journal guarda XML, protocolo e estado da operação para evitar emissão duplicada.

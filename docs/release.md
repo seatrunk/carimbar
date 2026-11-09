@@ -16,6 +16,13 @@ e PyPI não apagam versões (no máximo yank).
 `.github/workflows/release.yml` roda só em push de tag `v*` ou manualmente
 (`workflow_dispatch`). Nada roda em branch nem em PR.
 
+### Mudança de comportamento (breaking): kill switch de produção
+
+Desde a #41, `KillSwitchAmbiente` só libera produção com `CARIMBAR_PRODUCAO=1`
+(depois de `trim()`). Antes a ausência da variável liberava produção e apenas
+`0`/`false`/`nao` bloqueavam. Agora ausência, vazio e qualquer valor diferente
+de `1` bloqueiam produção (fail-closed).
+
 ## Jobs
 
 | Job | Depende de | O que faz |

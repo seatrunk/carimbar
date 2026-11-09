@@ -50,7 +50,7 @@ pub enum ErroEmissor {
         chave: String,
     },
     /// O kill switch de produção está ativo.
-    #[error("produção bloqueada por CARIMBAR_PRODUCAO=0")]
+    #[error("produção bloqueada: produção exige CARIMBAR_PRODUCAO=1")]
     ProducaoBloqueada,
     /// A confirmação de produção não corresponde ao CNPJ da empresa.
     #[error("confirmação de produção não corresponde ao CNPJ {0}")]

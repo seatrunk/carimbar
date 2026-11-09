@@ -258,7 +258,8 @@ CNPJ do titular pelo OID ICP-Brasil `2.16.76.1.3.3` e valida o vínculo na abert
 
 - `tpAmb = 1`: produção. Exige confirmação explícita e nunca roda no CI.
 - `tpAmb = 2`: homologação/produção restrita. É o alvo dos testes de integração.
-- CI usa `CARIMBAR_PRODUCAO=0` como kill switch.
+- CI usa `CARIMBAR_PRODUCAO=0` como kill switch; produção só é permitida com
+  `CARIMBAR_PRODUCAO=1`.
 - Nenhum certificado, senha, `.env` ou dado real de empresa é versionado. O
   script `scripts/check-no-certs.sh` verifica isso.
 - Chaves privadas devem ficar em memória zerável e nunca aparecer em `Debug`,
@@ -407,8 +408,9 @@ sem duplicar regras entre CLI, MCP e Python.
   perder o estado.
 - **Produção:** `promover_producao` exige `ConfirmacaoProducao` do CNPJ da
   empresa, certificado pertencente a ela e kill switch liberado. O kill switch
-  lê `CARIMBAR_PRODUCAO` a cada operação de produção; `0`, `false` ou `nao`
-  bloqueiam. A promoção é administrativa e não é exposta pelo MCP.
+  lê `CARIMBAR_PRODUCAO` a cada operação de produção; só o valor `1` (depois de
+  `trim()`) libera. Ausência, vazio e qualquer outro valor bloqueiam. A promoção
+  é administrativa e não é exposta pelo MCP.
 - **Limites:** o journal não processa segredos; o cofre continua sendo a única
   fonte de certificado. A reconciliação de cancelamento depende de uma consulta
   de eventos que ainda não foi implementada; cancelamentos com resultado
@@ -472,8 +474,8 @@ O binário `carimbar` reutiliza a fachada e o cofre; não duplica regras fiscais
 - **Saída:** humana por padrão ou JSON com `--json`. Códigos estáveis: `2` uso,
   `3` rejeição fiscal, `4` transporte/resultado desconhecido, `5` produção
   bloqueada, `6` conflito de idempotência, `1` erro operacional.
-- **Produção:** `empresa promover` exige `--confirmar` com o CNPJ e respeita
-  `CARIMBAR_PRODUCAO=0`.
+- **Produção:** `empresa promover` exige `--confirmar` com o CNPJ e respeita o
+  kill switch (produção exige `CARIMBAR_PRODUCAO=1`).
 - **Emissão:** aceita DPS em XML, prepara pelo journal, assina e confirma;
   pode gravar XML autorizado e DANFSe.
 - **Teste simulado:** em build de depuração, `--replay <arquivo>` lê respostas
