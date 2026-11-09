@@ -187,6 +187,23 @@ impl Executor for ExecutorFalso {
     }
 }
 
+fn nfse_autorizada() -> String {
+    r#"<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01"><infNFSe Id="NFS35503080000000010001360000000000000000000000000"><xLocEmi>Sao Paulo</xLocEmi><xLocPrestacao>Sao Paulo</xLocPrestacao><nNFSe>123</nNFSe><cStat>100</cStat><dhProc>2026-11-09T10:00:00-03:00</dhProc><nDFSe>1</nDFSe><emit><CNPJ>00000001000136</CNPJ><IM>12345</IM><xNome>Empresa Sintetica</xNome><enderNac><xLgr>Rua A</xLgr><nro>1</nro><xBairro>Centro</xBairro><cMun>3550308</cMun><UF>SP</UF><CEP>01001000</CEP></enderNac></emit><valores><vBC>10.00</vBC><pAliqAplic>2.00</pAliqAplic><vISSQN>0.20</vISSQN><vLiq>9.80</vLiq></valores><DPS versao="1.01"><infDPS Id="DPS355030810000000100013600001000000000000001"><tpAmb>2</tpAmb><serv><cServ><cTribNac>010101</cTribNac><xDescServ>Servico sintetico</xDescServ></cServ></serv><valores><vServPrest><vServ>10.00</vServ></vServPrest><trib><tribMun><tribISSQN>1</tribISSQN></tribMun></trib></valores></infDPS></DPS></infNFSe></NFSe>"#.to_owned()
+}
+
+fn corpo_autorizacao_com(xml: &str, ambiente: TpAmb) -> Vec<u8> {
+    let id = dps(ambiente).id().expect("Id");
+    serde_json::json!({
+        "idDps": id.as_str(),
+        "chaveAcesso": chave_sintetica(ambiente).as_str(),
+        "nfseXmlGZipB64": carimbar_nfse::comprimir_b64(xml).expect("comprime"),
+        "dataHoraProcessamento": "2026-11-08T10:00:01-03:00",
+        "alertas": []
+    })
+    .to_string()
+    .into_bytes()
+}
+
 fn corpo_autorizacao(ambiente: TpAmb) -> Vec<u8> {
     let id = dps(ambiente).id().expect("Id");
     serde_json::json!({
@@ -460,4 +477,25 @@ fn confirmacao_de_producao_fica_vinculada_ao_cnpj() {
         erro,
         carimbar::ErroEmissor::ConfirmacaoDivergente(_)
     ));
+}
+
+#[test]
+fn gera_danfse_apenas_de_operacao_autorizada() {
+    let pki = pki("danfse");
+    let empresa = empresa();
+    let cofre = cofre_com_certificado(&empresa, &pki);
+    let journal = Journal::em_memoria().expect("journal");
+    let executor = ExecutorFalso::com(vec![Ok(resposta(
+        201,
+        corpo_autorizacao_com(&nfse_autorizada(), TpAmb::Homologacao),
+    ))]);
+    let mut emissor = Emissor::novo(cofre, journal, empresa, &executor).expect("emissor");
+    let resultado = emissor
+        .executar_nfse(&dps(TpAmb::Homologacao))
+        .expect("emissão");
+    let ResultadoNfse::Autorizada { operacao, .. } = resultado else {
+        panic!("esperava autorização");
+    };
+    let pdf = emissor.gerar_danfse(operacao).expect("DANFSe");
+    assert!(pdf.starts_with(b"%PDF"));
 }

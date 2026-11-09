@@ -51,8 +51,10 @@ XSD nos testes. A fachada `Emissor` e o journal local com idempotência,
 reconciliação, promoção explícita de produção e kill switch estão implementados
 (`carimbar`). A distribuição ADN por NSU, o cursor por empresa/ambiente e a
 parametrização municipal com cache também estão implementados (`carimbar-nfse`).
-Ainda não há homologação real: PDFs, CLI e MCP continuam stubs e **não há emissão
-funcional homologada de notas fiscais**.
+O DANFSe em PDF a partir da NFS-e autorizada está implementado (`carimbar-danfe`).
+A CLI `carimbar` cobre empresa, emissão, consulta, cancelamento, DANFSe, ADN e
+parâmetros municipais. Ainda não há homologação real: o MCP continua stub e
+**não há emissão funcional homologada de notas fiscais**.
 
 O [plano de implementação do MVP](docs/plano-mvp.md) organiza as etapas,
 dependências e critérios de conclusão, acompanhados pela

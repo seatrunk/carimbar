@@ -106,6 +106,16 @@ alíquota/histórico, benefício, regimes especiais e retenções, com cache por
 ambiente/município, TTL e atualização explícita. A fachada expõe essas operações
 sem duplicar transporte.
 
+Entrega da #16: CLI `carimbar` com comandos de empresa (importar/listar/
+promover/rebaixar), emissão de DPS XML, consulta, cancelamento, DANFSe, ADN e
+parâmetros municipais. A senha do PFX vem de `CARIMBAR_SENHA_PFX` e a KEK de
+`CARIMBAR_KEK`; segredos não entram em argumentos. A saída pode ser humana ou
+JSON, com códigos de saída estáveis (2 uso, 3 fiscal, 4 transporte/desconhecido,
+5 produção bloqueada, 6 conflito). Emissão usa a fachada (journal, idempotência
+e kill switch) e o fluxo completo roda com transporte replay em build de
+depuração. `--help` e `--version` funcionam.
+
+
 
 Critério do marco: Fluxo completo com transporte simulado pelas APIs públicas, persistência e retomada; timeout não gera reenvio cego nem nota duplicada.
 
@@ -113,8 +123,8 @@ Critério do marco: Fluxo completo com transporte simulado pelas APIs públicas,
 
 Entregar DANFSe, CLI e MCP; iniciar a validação real de NFS-e por disparo manual protegido assim que fachada e CLI estiverem disponíveis.
 
-- [ ] [#15](https://github.com/seatrunk/carimbar/issues/15) — Gerar DANFSe em PDF a partir da NFS-e autorizada.
-- [ ] [#16](https://github.com/seatrunk/carimbar/issues/16) — Implementar CLI de emissão, consulta e administração de empresas.
+- [x] [#15](https://github.com/seatrunk/carimbar/issues/15) — Gerar DANFSe em PDF a partir da NFS-e autorizada.
+- [x] [#16](https://github.com/seatrunk/carimbar/issues/16) — Implementar CLI de emissão, consulta e administração de empresas.
 - [ ] [#17](https://github.com/seatrunk/carimbar/issues/17) — Implementar servidor MCP local com preparação e confirmação de operações.
 - [ ] [#21](https://github.com/seatrunk/carimbar/issues/21) — Validar o MVP ponta a ponta e criar homologação manual protegida.
 
