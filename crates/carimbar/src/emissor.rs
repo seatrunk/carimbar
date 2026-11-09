@@ -18,12 +18,16 @@ use crate::erro::ErroEmissor;
 use crate::journal::{EstadoOperacao, Journal, Operacao, TipoOperacao, hash_conteudo};
 use carimbar_cert::CertificadoA1;
 use carimbar_dsig::{assinar, verificar};
+#[cfg(feature = "nfe-sha1")]
+use carimbar_endpoints::Uf;
+#[cfg(feature = "nfe-sha1")]
+use carimbar_nfe::{ClienteNfe, Contingencia, ResultadoAutorizacao};
 use carimbar_nfse::{
     CacheParametros, ChaveNfse, ClienteAdn, ClienteParametros, ClienteSefin, Dps, ErroFiscal,
     EventoCancelamento, Executor, IdDps, LoteDistribuicao, ParametrosConvenio, Rejeicao,
     ResultadoEmissao, ResultadoEvento, StatusDistribuicao,
 };
-use carimbar_types::{Ambiente, Cnpj, ConfirmacaoProducao, TpAmb};
+use carimbar_types::{Ambiente, ChaveAcesso, Cnpj, ConfirmacaoProducao, ModeloDocumento, TpAmb};
 use carimbar_vault::{Cofre, MetadadosCertificado};
 use carimbar_xml::Documento;
 
@@ -138,6 +142,57 @@ pub struct ResultadoSincronizacao {
     pub documentos_novos: usize,
     /// Páginas consultadas.
     pub paginas: usize,
+}
+
+/// Resultado de uma operação de NF-e.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResultadoNfe {
+    /// NF-e autorizada.
+    Autorizada {
+        /// Operação local.
+        operacao: i64,
+        /// Chave.
+        chave: ChaveAcesso,
+        /// XML autorizado.
+        xml: String,
+    },
+    /// Lote recebido; consultar recibo.
+    Recibo {
+        /// Operação local.
+        operacao: i64,
+        /// Recibo.
+        recibo: String,
+    },
+    /// Rejeição fiscal.
+    Rejeitada {
+        /// Operação local.
+        operacao: i64,
+        /// Código.
+        codigo: String,
+        /// Motivo.
+        motivo: String,
+    },
+    /// Resultado não lido.
+    Desconhecida {
+        /// Operação local.
+        operacao: i64,
+        /// Diagnóstico.
+        detalhe: String,
+    },
+    /// Operação não encontrada na reconciliação.
+    NaoEncontrada {
+        /// Operação local.
+        operacao: i64,
+        /// Diagnóstico.
+        detalhe: String,
+    },
+    /// NF-e cancelada.
+    Cancelada {
+        /// Operação local.
+        operacao: i64,
+        /// Protocolo.
+        protocolo: Option<String>,
+    },
 }
 
 /// Fachada de emissão de NFS-e para uma empresa.
@@ -761,6 +816,283 @@ impl<'a> Emissor<'a> {
             .adn_documentos(&self.empresa, self.ambiente().tp_amb())
     }
 
+    /// Reserva o próximo número da NF-e para a série informada.
+    pub fn reservar_numero_nfe(&mut self, serie: u32) -> Result<u64, ErroEmissor> {
+        let ambiente = self.ambiente().tp_amb();
+        self.journal
+            .reservar_numero_nfe(&self.empresa, ambiente, serie)
+    }
+
+    /// Prepara uma NF-e serializada em XML.
+    pub fn preparar_nfe_xml(&mut self, xml: &str) -> Result<OperacaoPreparada, ErroEmissor> {
+        let documento = Documento::parse(xml.as_bytes())?;
+        if documento.raiz().nome().local() != "NFe" {
+            return Err(ErroEmissor::Divergencia {
+                campo: "raiz da NF-e",
+            });
+        }
+        let inf = documento
+            .raiz()
+            .primeiro_filho("infNFe")
+            .ok_or(ErroEmissor::Divergencia { campo: "infNFe" })?;
+        let id = inf.atributo("Id").ok_or(ErroEmissor::Divergencia {
+            campo: "infNFe/@Id",
+        })?;
+        let chave = id.strip_prefix("NFe").ok_or(ErroEmissor::Divergencia {
+            campo: "infNFe/@Id",
+        })?;
+        let chave = ChaveAcesso::parse(chave).map_err(|erro| ErroEmissor::Nfe(erro.into()))?;
+        if chave.modelo() != Some(ModeloDocumento::NFe) {
+            return Err(ErroEmissor::Divergencia {
+                campo: "modelo da NF-e",
+            });
+        }
+        let ambiente = self.ambiente().tp_amb();
+        let tp_amb = inf
+            .primeiro_filho("ide")
+            .and_then(|ide| ide.primeiro_filho("tpAmb"))
+            .map(|elemento| elemento.texto())
+            .unwrap_or_default();
+        if tp_amb != ambiente.codigo().to_string() {
+            return Err(ErroEmissor::Divergencia { campo: "ide/tpAmb" });
+        }
+        let cnpj = inf
+            .primeiro_filho("emit")
+            .and_then(|emit| emit.primeiro_filho("CNPJ"))
+            .map(|elemento| elemento.texto())
+            .unwrap_or_default();
+        if cnpj != self.empresa.as_str() {
+            return Err(ErroEmissor::Divergencia { campo: "emit/CNPJ" });
+        }
+        let hash = hash_conteudo(xml);
+        let (operacao, nova) = self.journal.criar(
+            &self.empresa,
+            ambiente,
+            TipoOperacao::EmitirNfe,
+            chave.as_str(),
+            &hash,
+            xml,
+        )?;
+        Ok(OperacaoPreparada { operacao, nova })
+    }
+
+    /// Confirma a NF-e, assinando com o perfil SHA-1 e enviando uma vez.
+    #[cfg(feature = "nfe-sha1")]
+    pub fn confirmar_nfe(&mut self, id: i64) -> Result<ResultadoNfe, ErroEmissor> {
+        let operacao = self.journal.operacao(id)?;
+        self.conferir_operacao(&operacao, TipoOperacao::EmitirNfe)?;
+        match operacao.estado {
+            EstadoOperacao::Autorizada => return self.resultado_autorizada_nfe(&operacao),
+            EstadoOperacao::Rejeitada => return Ok(self.resultado_rejeitada_nfe(&operacao)),
+            EstadoOperacao::Enviada | EstadoOperacao::Desconhecida => {
+                return self.reconciliar_nfe(id);
+            }
+            EstadoOperacao::Preparada
+            | EstadoOperacao::FalhaAntesDoEnvio
+            | EstadoOperacao::NaoEncontrada => {}
+            EstadoOperacao::Cancelada => {
+                return Ok(ResultadoNfe::Cancelada {
+                    operacao: id,
+                    protocolo: operacao.protocolo,
+                });
+            }
+        }
+        self.exigir_producao_permitida()?;
+        let certificado = self.certificado_atual()?;
+        let documento = Documento::parse(operacao.xml_preparado.as_bytes())?;
+        let xml = if documento.caminhos_por_local("Signature").is_empty() {
+            carimbar_nfe::assinar_xml(&operacao.xml_preparado, &certificado)?
+        } else {
+            let verificacao = carimbar_nfe::verificar_xml(&operacao.xml_preparado)?;
+            if verificacao.certificado_der() != certificado.certificado_der() {
+                return Err(ErroEmissor::CertificadoDeOutraEmpresa);
+            }
+            operacao.xml_preparado.clone()
+        };
+        let uf = uf_da_nfe(&operacao.xml_preparado)?;
+        let contingencia = contingencia_da_nfe(&operacao.xml_preparado);
+        if !self.journal.reivindicar_envio(id, &xml)? {
+            return match self.journal.operacao(id)?.estado {
+                EstadoOperacao::Autorizada => {
+                    self.resultado_autorizada_nfe(&self.journal.operacao(id)?)
+                }
+                EstadoOperacao::Rejeitada => {
+                    Ok(self.resultado_rejeitada_nfe(&self.journal.operacao(id)?))
+                }
+                _ => Err(ErroEmissor::EmAndamento(id)),
+            };
+        }
+        let cliente = ClienteNfe::novo(operacao.ambiente, uf, contingencia, self.executor);
+        match cliente.autorizar_xml(&xml) {
+            Ok(ResultadoAutorizacao::Autorizada(protocolo)) => {
+                self.journal.marcar_autorizada(
+                    id,
+                    &protocolo.chave,
+                    &protocolo.xml,
+                    Some(&protocolo.numero),
+                )?;
+                Ok(ResultadoNfe::Autorizada {
+                    operacao: id,
+                    chave: ChaveAcesso::parse(&protocolo.chave)
+                        .map_err(|erro| ErroEmissor::Nfe(erro.into()))?,
+                    xml: protocolo.xml,
+                })
+            }
+            Ok(ResultadoAutorizacao::Recibo(recibo)) => match cliente.consultar_recibo(&recibo) {
+                Ok(ResultadoAutorizacao::Autorizada(protocolo)) => {
+                    self.journal.marcar_autorizada(
+                        id,
+                        &protocolo.chave,
+                        &protocolo.xml,
+                        Some(&protocolo.numero),
+                    )?;
+                    Ok(ResultadoNfe::Autorizada {
+                        operacao: id,
+                        chave: ChaveAcesso::parse(&protocolo.chave)
+                            .map_err(|erro| ErroEmissor::Nfe(erro.into()))?,
+                        xml: protocolo.xml,
+                    })
+                }
+                _ => {
+                    let detalhe = format!("recibo {recibo} pendente");
+                    self.journal.marcar_desconhecida(id, &detalhe)?;
+                    Ok(ResultadoNfe::Recibo {
+                        operacao: id,
+                        recibo,
+                    })
+                }
+            },
+            Ok(ResultadoAutorizacao::Rejeitada { codigo, motivo }) => {
+                let detalhe = format!("{codigo}: {motivo}");
+                self.journal.marcar_rejeitada(id, &detalhe)?;
+                Ok(ResultadoNfe::Rejeitada {
+                    operacao: id,
+                    codigo,
+                    motivo,
+                })
+            }
+            Err(carimbar_nfe::ErroNfe::AntesDoEnvio(erro)) => {
+                let detalhe = erro.to_string();
+                self.journal.marcar_falha_antes_envio(id, &detalhe)?;
+                Err(ErroEmissor::Nfe(carimbar_nfe::ErroNfe::AntesDoEnvio(erro)))
+            }
+            Err(carimbar_nfe::ErroNfe::ResultadoDesconhecido(erro)) => {
+                let detalhe = erro.to_string();
+                self.journal.marcar_desconhecida(id, &detalhe)?;
+                Ok(ResultadoNfe::Desconhecida {
+                    operacao: id,
+                    detalhe,
+                })
+            }
+            Err(erro) => {
+                self.journal.marcar_desconhecida(id, &erro.to_string())?;
+                Err(ErroEmissor::Nfe(erro))
+            }
+        }
+    }
+
+    /// Reconcilia uma NF-e enviada/desconhecida pela consulta de protocolo.
+    #[cfg(feature = "nfe-sha1")]
+    pub fn reconciliar_nfe(&mut self, id: i64) -> Result<ResultadoNfe, ErroEmissor> {
+        let operacao = self.journal.operacao(id)?;
+        self.conferir_operacao(&operacao, TipoOperacao::EmitirNfe)?;
+        if !matches!(
+            operacao.estado,
+            EstadoOperacao::Enviada | EstadoOperacao::Desconhecida
+        ) {
+            return match operacao.estado {
+                EstadoOperacao::Autorizada => self.resultado_autorizada_nfe(&operacao),
+                EstadoOperacao::Rejeitada => Ok(self.resultado_rejeitada_nfe(&operacao)),
+                _ => Err(ErroEmissor::EstadoInvalido {
+                    id,
+                    estado: operacao.estado.as_str(),
+                    acao: "reconciliar NF-e",
+                }),
+            };
+        }
+        let uf = uf_da_nfe(&operacao.xml_preparado)?;
+        let contingencia = contingencia_da_nfe(&operacao.xml_preparado);
+        let cliente = ClienteNfe::novo(operacao.ambiente, uf, contingencia, self.executor);
+        let consulta = cliente.consultar(&operacao.chave_operacao)?;
+        if consulta.codigo == "100" || consulta.codigo == "101" {
+            let protocolo = consulta.protocolo.as_ref();
+            let numero = protocolo.map(|p| p.numero.clone());
+            let xml = operacao
+                .xml_enviado
+                .clone()
+                .unwrap_or_else(|| operacao.xml_preparado.clone());
+            if consulta.codigo == "101" {
+                self.journal.marcar_cancelada(id, &xml)?;
+                return Ok(ResultadoNfe::Cancelada {
+                    operacao: id,
+                    protocolo: numero,
+                });
+            }
+            self.journal.marcar_autorizada(
+                id,
+                &operacao.chave_operacao,
+                &xml,
+                numero.as_deref(),
+            )?;
+            return Ok(ResultadoNfe::Autorizada {
+                operacao: id,
+                chave: ChaveAcesso::parse(&operacao.chave_operacao)
+                    .map_err(|erro| ErroEmissor::Nfe(erro.into()))?,
+                xml,
+            });
+        }
+        let detalhe = format!("{}: {}", consulta.codigo, consulta.motivo);
+        self.journal.marcar_nao_encontrada(id, &detalhe)?;
+        Ok(ResultadoNfe::NaoEncontrada {
+            operacao: id,
+            detalhe,
+        })
+    }
+
+    /// Consulta a situação de uma NF-e pela chave.
+    #[cfg(feature = "nfe-sha1")]
+    pub fn consultar_nfe(
+        &self,
+        chave: &ChaveAcesso,
+    ) -> Result<carimbar_nfe::ResultadoConsulta, ErroEmissor> {
+        let uf = Uf::from_codigo(&chave.as_str()[0..2])
+            .map_err(|erro| ErroEmissor::Nfe(carimbar_nfe::ErroNfe::Endpoint(erro)))?;
+        let cliente = ClienteNfe::novo(
+            self.ambiente().tp_amb(),
+            uf,
+            Contingencia::Normal,
+            self.executor,
+        );
+        Ok(cliente.consultar(chave.as_str())?)
+    }
+
+    #[cfg(feature = "nfe-sha1")]
+    fn resultado_autorizada_nfe(&self, operacao: &Operacao) -> Result<ResultadoNfe, ErroEmissor> {
+        let xml = operacao
+            .xml_retorno
+            .clone()
+            .ok_or_else(|| ErroEmissor::Journal("NF-e autorizada sem XML".to_owned()))?;
+        let chave = ChaveAcesso::parse(&operacao.chave_operacao)
+            .map_err(|erro| ErroEmissor::Nfe(erro.into()))?;
+        Ok(ResultadoNfe::Autorizada {
+            operacao: operacao.id,
+            chave,
+            xml,
+        })
+    }
+
+    #[cfg(feature = "nfe-sha1")]
+    fn resultado_rejeitada_nfe(&self, operacao: &Operacao) -> ResultadoNfe {
+        ResultadoNfe::Rejeitada {
+            operacao: operacao.id,
+            codigo: String::new(),
+            motivo: operacao
+                .erro
+                .clone()
+                .unwrap_or_else(|| "rejeição sem detalhe".to_owned()),
+        }
+    }
+
     fn exigir_producao_permitida(&self) -> Result<(), ErroEmissor> {
         if self.ambiente().eh_producao() && !self.kill_switch.producao_permitida() {
             return Err(ErroEmissor::ProducaoBloqueada);
@@ -832,6 +1164,38 @@ impl<'a> Emissor<'a> {
                 .clone()
                 .unwrap_or_else(|| "rejeição sem detalhe persistido".to_owned()),
         }
+    }
+}
+
+#[cfg(feature = "nfe-sha1")]
+fn uf_da_nfe(xml: &str) -> Result<Uf, ErroEmissor> {
+    let documento = Documento::parse(xml.as_bytes())?;
+    let cuf = documento
+        .raiz()
+        .primeiro_filho("infNFe")
+        .and_then(|inf| inf.primeiro_filho("ide"))
+        .and_then(|ide| ide.primeiro_filho("cUF"))
+        .map(|elemento| elemento.texto())
+        .ok_or(ErroEmissor::Divergencia { campo: "ide/cUF" })?;
+    Uf::from_codigo(&cuf).map_err(|erro| ErroEmissor::Nfe(carimbar_nfe::ErroNfe::Endpoint(erro)))
+}
+
+#[cfg(feature = "nfe-sha1")]
+fn contingencia_da_nfe(xml: &str) -> Contingencia {
+    let Ok(documento) = Documento::parse(xml.as_bytes()) else {
+        return Contingencia::Normal;
+    };
+    let tp_emis = documento
+        .raiz()
+        .primeiro_filho("infNFe")
+        .and_then(|inf| inf.primeiro_filho("ide"))
+        .and_then(|ide| ide.primeiro_filho("tpEmis"))
+        .map(|elemento| elemento.texto())
+        .unwrap_or_default();
+    match tp_emis.as_str() {
+        "6" => Contingencia::SvcAn,
+        "7" => Contingencia::SvcRs,
+        _ => Contingencia::Normal,
     }
 }
 

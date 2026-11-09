@@ -9,13 +9,15 @@
 //! em todos os caminhos fiscais.
 
 use base64::Engine;
+#[cfg(feature = "nfe-sha1")]
+use carimbar::ResultadoNfe;
 use carimbar::{Emissor, ErroEmissor, Journal, KillSwitch, KillSwitchAmbiente, ResultadoNfse};
 use carimbar_nfse::{
     Aliquota, ChaveNfse, ConsultaAliquotas, DataHoraFiscal, EventoCancelamento, Executor,
     InscricaoFederal, MotivoCancelamento, ParametrosConvenio,
 };
 use carimbar_transport::{ClienteMtls, ErroEnvio, ErroTransporte, Opcoes, Requisicao, Resposta};
-use carimbar_types::{Cnpj, TpAmb};
+use carimbar_types::{ChaveAcesso, Cnpj, TpAmb};
 use carimbar_vault::{ChaveMestra, Cofre};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::{Json, Parameters};
@@ -108,6 +110,7 @@ fn ler_kek() -> Result<[u8; 32], String> {
 #[derive(Debug, Clone)]
 enum Payload {
     Emissao(String),
+    EmissaoNfe(String),
     Cancelamento(EventoCancelamento),
 }
 
@@ -371,6 +374,24 @@ struct EstadoOperacaoReq {
     operacao: i64,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct PrepararEmissaoNfeReq {
+    empresa: String,
+    nfe_xml: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ConfirmarEmissaoNfeReq {
+    token: String,
+    confirmar_producao: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ConsultarNfeReq {
+    empresa: String,
+    chave: String,
+}
+
 #[tool_router]
 impl ServidorCarimbar {
     /// Prepara uma emissão de NFS-e sem enviar.
@@ -578,6 +599,89 @@ impl ServidorCarimbar {
             "erro": operacao.erro,
         })))
     }
+
+    /// Prepara uma NF-e sem enviar.
+    #[tool(
+        description = "Prepara uma NF-e modelo 55 e devolve um token de uso único. Não envia à Sefaz."
+    )]
+    fn preparar_emissao_nfe(
+        &self,
+        Parameters(req): Parameters<PrepararEmissaoNfeReq>,
+    ) -> Result<Json<Value>, String> {
+        let empresa = parse_empresa(&req.empresa)?;
+        let nfe_xml = req.nfe_xml;
+        let (operacao, ambiente) = self.com_emissor(empresa, |emissor| {
+            let preparada = emissor.preparar_nfe_xml(&nfe_xml)?;
+            Ok((preparada.id(), emissor.ambiente().tp_amb()))
+        })?;
+        let token = self
+            .preparacoes
+            .inserir(empresa, ambiente, Payload::EmissaoNfe(nfe_xml));
+        Ok(Json(json!({
+            "token": token,
+            "operacao": operacao,
+            "estado": "preparada",
+            "empresa": empresa.as_str(),
+            "ambiente": ambiente_texto(ambiente),
+            "expira_em_segundos": self.config.ttl_preparacao.as_secs(),
+        })))
+    }
+
+    /// Confirma a NF-e preparada.
+    #[tool(
+        description = "Confirma a NF-e pelo token de preparação. O token é de uso único e expira."
+    )]
+    #[allow(clippy::needless_return)]
+    fn confirmar_emissao_nfe(
+        &self,
+        Parameters(req): Parameters<ConfirmarEmissaoNfeReq>,
+    ) -> Result<Json<Value>, String> {
+        let preparacao = self.preparacoes.conferir(&req.token)?;
+        let Payload::EmissaoNfe(nfe_xml) = preparacao.payload.clone() else {
+            return Err("token não é de emissão de NF-e".to_owned());
+        };
+        exigir_confirmacao_producao(preparacao.ambiente, req.confirmar_producao)?;
+        let preparacao = self.preparacoes.retirar(&req.token)?;
+        #[cfg(feature = "nfe-sha1")]
+        {
+            let resultado = self.com_emissor(preparacao.empresa, |emissor| {
+                let preparada = emissor.preparar_nfe_xml(&nfe_xml)?;
+                emissor.confirmar_nfe(preparada.id())
+            })?;
+            return Ok(Json(resultado_nfe(&resultado)));
+        }
+        #[cfg(not(feature = "nfe-sha1"))]
+        {
+            let _ = (preparacao, nfe_xml);
+            Err("NF-e requer a feature nfe-sha1".to_owned())
+        }
+    }
+
+    /// Consulta uma NF-e pela chave.
+    #[tool(description = "Consulta a situação de uma NF-e pela chave.")]
+    #[allow(clippy::needless_return)]
+    fn consultar_nfe(
+        &self,
+        Parameters(req): Parameters<ConsultarNfeReq>,
+    ) -> Result<Json<Value>, String> {
+        let empresa = parse_empresa(&req.empresa)?;
+        let chave = ChaveAcesso::parse(&req.chave).map_err(|erro| erro.to_string())?;
+        #[cfg(feature = "nfe-sha1")]
+        {
+            let consulta = self.com_emissor(empresa, |emissor| emissor.consultar_nfe(&chave))?;
+            return Ok(Json(json!({
+                "chave": chave.as_str(),
+                "codigo": consulta.codigo,
+                "motivo": consulta.motivo,
+                "protocolo": consulta.protocolo.map(|p| p.numero),
+            })));
+        }
+        #[cfg(not(feature = "nfe-sha1"))]
+        {
+            let _ = (empresa, chave);
+            Err("NF-e requer a feature nfe-sha1".to_owned())
+        }
+    }
 }
 
 #[tool_handler(router = self.tool_router)]
@@ -653,6 +757,55 @@ fn resultado_nfse(resultado: &ResultadoNfse) -> Value {
             "estado": "cancelada",
             "operacao": operacao,
             "xml_evento": xml_evento,
+        }),
+    }
+}
+
+#[cfg(feature = "nfe-sha1")]
+fn resultado_nfe(resultado: &ResultadoNfe) -> Value {
+    match resultado {
+        ResultadoNfe::Autorizada {
+            operacao,
+            chave,
+            xml,
+        } => json!({
+            "estado": "autorizada",
+            "operacao": operacao,
+            "chave": chave.as_str(),
+            "xml": xml,
+        }),
+        ResultadoNfe::Recibo { operacao, recibo } => json!({
+            "estado": "recibo",
+            "operacao": operacao,
+            "recibo": recibo,
+        }),
+        ResultadoNfe::Rejeitada {
+            operacao,
+            codigo,
+            motivo,
+        } => json!({
+            "estado": "rejeitada",
+            "operacao": operacao,
+            "codigo": codigo,
+            "motivo": motivo,
+        }),
+        ResultadoNfe::Desconhecida { operacao, detalhe } => json!({
+            "estado": "desconhecida",
+            "operacao": operacao,
+            "detalhe": detalhe,
+        }),
+        ResultadoNfe::NaoEncontrada { operacao, detalhe } => json!({
+            "estado": "nao_encontrada",
+            "operacao": operacao,
+            "detalhe": detalhe,
+        }),
+        ResultadoNfe::Cancelada {
+            operacao,
+            protocolo,
+        } => json!({
+            "estado": "cancelada",
+            "operacao": operacao,
+            "protocolo": protocolo,
         }),
     }
 }
@@ -783,7 +936,7 @@ mod tests {
     use carimbar_nfse::comprimir_b64;
     use std::process::{Command, Stdio};
 
-    const CNPJ: &str = "00000001000136";
+    pub(super) const CNPJ: &str = "00000001000136";
     const SENHA: &str = "senha-sintetica-123";
     const KEK: [u8; 32] = [9; 32];
     const ID_DPS: &str = "DPS355030810000000100013600001000000000000001";
@@ -872,7 +1025,11 @@ mod tests {
         )
     }
 
-    fn cenario(nome: &str, ambiente: TpAmb, kill_switch: Arc<dyn KillSwitch>) -> (Config, PathBuf) {
+    pub(super) fn cenario(
+        nome: &str,
+        ambiente: TpAmb,
+        kill_switch: Arc<dyn KillSwitch>,
+    ) -> (Config, PathBuf) {
         let dir = diretorio(nome);
         let cofre_path = dir.join("cofre.db");
         let journal_path = dir.join("journal.db");
@@ -1056,5 +1213,49 @@ mod tests {
             Err(erro) => erro,
         };
         assert!(erro.contains("produção bloqueada"));
+    }
+}
+
+#[cfg(all(test, feature = "nfe-sha1"))]
+mod tests_nfe {
+    use super::tests::*;
+    use super::*;
+
+    #[test]
+    fn prepara_confirma_nfe_com_replay() {
+        let (config, dir) = cenario(
+            "nfe",
+            TpAmb::Homologacao,
+            Arc::new(carimbar::KillSwitchFixo(true)),
+        );
+        let chave =
+            carimbar_types::ChaveAcesso::com_dv("3526110000000100013655001000000000112345678")
+                .expect("chave")
+                .as_str()
+                .to_owned();
+        let nfe = format!(
+            r#"<NFe xmlns="http://www.portalfiscal.inf.br/nfe"><infNFe versao="4.00" Id="NFe{chave}"><ide><cUF>35</cUF><tpAmb>2</tpAmb></ide><emit><CNPJ>{CNPJ}</CNPJ></emit></infNFe></NFe>"#
+        );
+        let corpo = format!(
+            r#"<retEnviNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><cStat>104</cStat><xMotivo>Lote processado</xMotivo><protNFe versao="4.00"><infProt><chNFe>{chave}</chNFe><nProt>135</nProt><cStat>100</cStat><xMotivo>Autorizado</xMotivo></infProt></protNFe></retEnviNFe>"#
+        );
+        let replay = json!({"respostas": [{"url_contem": "nfeautorizacao4", "status": 200, "corpo": corpo}]});
+        std::fs::write(dir.join("replay.json"), replay.to_string()).expect("replay");
+        let servidor = ServidorCarimbar::novo(config);
+        let preparada = servidor
+            .preparar_emissao_nfe(Parameters(PrepararEmissaoNfeReq {
+                empresa: CNPJ.to_owned(),
+                nfe_xml: nfe,
+            }))
+            .expect("prepara NF-e");
+        let token = preparada.0["token"].as_str().expect("token").to_owned();
+        let resultado = servidor
+            .confirmar_emissao_nfe(Parameters(ConfirmarEmissaoNfeReq {
+                token,
+                confirmar_producao: None,
+            }))
+            .expect("confirma NF-e");
+        assert_eq!(resultado.0["estado"], "autorizada");
+        assert_eq!(resultado.0["chave"], chave);
     }
 }

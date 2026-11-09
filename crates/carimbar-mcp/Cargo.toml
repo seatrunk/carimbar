@@ -17,6 +17,10 @@ include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 name = "carimbar-mcp"
 path = "src/main.rs"
 
+[features]
+default = []
+nfe-sha1 = ["carimbar/nfe-sha1"]
+
 [dependencies]
 base64 = "0.22"
 carimbar.workspace = true

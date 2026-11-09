@@ -2,6 +2,7 @@
 
 use carimbar_danfe::ErroDanfe;
 use carimbar_dsig::ErroDsig;
+use carimbar_nfe::ErroNfe;
 use carimbar_nfse::ErroNfse;
 use carimbar_types::Cnpj;
 use carimbar_vault::ErroCofre;
@@ -18,6 +19,9 @@ pub enum ErroEmissor {
     /// Falha na camada NFS-e.
     #[error("NFS-e: {0}")]
     Nfse(#[from] ErroNfse),
+    /// Falha na camada NF-e.
+    #[error("NF-e: {0}")]
+    Nfe(#[from] ErroNfe),
     /// Falha ao ler ou montar XML.
     #[error("XML: {0}")]
     Xml(#[from] ErroXml),
