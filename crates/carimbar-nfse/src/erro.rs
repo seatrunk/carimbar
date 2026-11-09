@@ -58,6 +58,12 @@ pub enum ErroNfse {
     /// O recurso consultado não existe no ambiente.
     #[error("documento não encontrado")]
     NaoEncontrada,
+    /// O parâmetro municipal obrigatório não foi encontrado.
+    #[error("parâmetro municipal ausente: {0}")]
+    ParametroAusente(String),
+    /// A consulta de distribuição do ADN foi rejeitada.
+    #[error("distribuição ADN rejeitada: {0}")]
+    Distribuicao(String),
     /// A DPS enviada já foi processada; consulte pelo identificador.
     #[error("DPS já processada: {0}")]
     Duplicidade(String),

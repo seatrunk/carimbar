@@ -84,14 +84,20 @@
 
 #![deny(missing_docs)]
 
+mod adn;
 mod api;
 mod dps;
 mod erro;
 mod evento;
 mod gzip;
 mod identificadores;
+mod parametros;
 mod tempo;
 
+pub use adn::{
+    ClienteAdn, DocumentoDistribuido, LoteDistribuicao, MensagemAdn, StatusDistribuicao,
+    TipoDocumento,
+};
 pub use api::{
     ClienteSefin, DpsLocalizada, EmissaoAutorizada, ErroFiscal, EventoRegistrado, Executor,
     NfseConsultada, Rejeicao, ResultadoEmissao, ResultadoEvento,
@@ -107,5 +113,8 @@ pub use evento::{CODIGO_CANCELAMENTO, EventoCancelamento, MotivoCancelamento};
 pub use gzip::{LIMITE_XML, comprimir_b64, descomprimir_b64};
 pub use identificadores::{
     ChaveNfse, CodigoMunicipio, IdDps, InscricaoFederal, NumeroDps, SerieDps, TipoInscricao,
+};
+pub use parametros::{
+    Aliquota, CacheParametros, ClienteParametros, ConsultaAliquotas, ParametrosConvenio,
 };
 pub use tempo::{DataFiscal, DataHoraFiscal};

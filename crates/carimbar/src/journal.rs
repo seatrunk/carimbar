@@ -11,6 +11,7 @@
 //! enviem a mesma operação.
 
 use crate::erro::ErroEmissor;
+use carimbar_nfse::DocumentoDistribuido;
 use carimbar_types::{Cnpj, TpAmb};
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
@@ -132,6 +133,23 @@ pub struct Operacao {
     pub atualizado_em: i64,
 }
 
+/// Documento do ADN persistido no journal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentoAdnArmazenado {
+    /// NSU.
+    pub nsu: i64,
+    /// Chave de acesso.
+    pub chave_acesso: Option<String>,
+    /// Tipo do documento.
+    pub tipo_documento: String,
+    /// Tipo do evento.
+    pub tipo_evento: Option<String>,
+    /// XML.
+    pub xml: String,
+    /// Data e hora de geração.
+    pub data_hora_geracao: Option<String>,
+}
+
 /// Journal SQLite de operações e empresas.
 pub struct Journal {
     conn: Connection,
@@ -184,7 +202,26 @@ impl Journal {
                  UNIQUE (empresa, ambiente, tipo, chave_operacao)
              );
              CREATE INDEX IF NOT EXISTS operacoes_empresa_estado
-                 ON operacoes (empresa, ambiente, estado);",
+                 ON operacoes (empresa, ambiente, estado);
+             CREATE TABLE IF NOT EXISTS adn_cursor (
+                 empresa TEXT NOT NULL,
+                 ambiente TEXT NOT NULL,
+                 ultimo_nsu INTEGER NOT NULL,
+                 atualizado_em INTEGER NOT NULL,
+                 PRIMARY KEY (empresa, ambiente)
+             );
+             CREATE TABLE IF NOT EXISTS adn_documentos (
+                 empresa TEXT NOT NULL,
+                 ambiente TEXT NOT NULL,
+                 nsu INTEGER NOT NULL,
+                 chave_acesso TEXT,
+                 tipo_documento TEXT NOT NULL,
+                 tipo_evento TEXT,
+                 xml TEXT NOT NULL,
+                 data_hora_geracao TEXT,
+                 criado_em INTEGER NOT NULL,
+                 PRIMARY KEY (empresa, ambiente, nsu)
+             );",
         )?;
         Ok(Self { conn })
     }
@@ -455,6 +492,99 @@ impl Journal {
             params![id, xml_evento, agora()],
         )?;
         Ok(())
+    }
+
+    /// Cursor de distribuição do ADN, começando em zero.
+    pub fn adn_cursor(&self, empresa: &Cnpj, ambiente: TpAmb) -> Result<i64, ErroEmissor> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT ultimo_nsu FROM adn_cursor WHERE empresa = ?1 AND ambiente = ?2",
+                params![empresa.as_str(), ambiente_str(ambiente)],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(0))
+    }
+
+    /// Persiste documentos e avança o cursor na mesma transação.
+    ///
+    /// O cursor só é atualizado depois que os documentos foram inseridos. NSUs
+    /// repetidos são ignorados. Retorna quantos documentos eram novos.
+    pub fn adn_persistir_lote(
+        &mut self,
+        empresa: &Cnpj,
+        ambiente: TpAmb,
+        documentos: &[DocumentoDistribuido],
+        novo_cursor: u64,
+    ) -> Result<usize, ErroEmissor> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let agora = agora();
+        let mut novos = 0_usize;
+        for documento in documentos {
+            let inseridos = tx.execute(
+                "INSERT OR IGNORE INTO adn_documentos
+                 (empresa, ambiente, nsu, chave_acesso, tipo_documento, tipo_evento, xml,
+                  data_hora_geracao, criado_em)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    empresa.as_str(),
+                    ambiente_str(ambiente),
+                    i64::try_from(documento.nsu)
+                        .map_err(|_| ErroEmissor::Journal("NSU fora de i64".to_owned()))?,
+                    documento.chave_acesso,
+                    documento.tipo_documento.as_str(),
+                    documento.tipo_evento,
+                    documento.xml,
+                    documento.data_hora_geracao,
+                    agora
+                ],
+            )?;
+            novos += inseridos;
+        }
+        tx.execute(
+            "INSERT INTO adn_cursor (empresa, ambiente, ultimo_nsu, atualizado_em)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(empresa, ambiente) DO UPDATE SET
+                 ultimo_nsu = MAX(ultimo_nsu, excluded.ultimo_nsu),
+                 atualizado_em = excluded.atualizado_em",
+            params![
+                empresa.as_str(),
+                ambiente_str(ambiente),
+                i64::try_from(novo_cursor)
+                    .map_err(|_| ErroEmissor::Journal("cursor fora de i64".to_owned()))?,
+                agora
+            ],
+        )?;
+        tx.commit()?;
+        Ok(novos)
+    }
+
+    /// Documentos do ADN já persistidos, ordenados por NSU.
+    pub fn adn_documentos(
+        &self,
+        empresa: &Cnpj,
+        ambiente: TpAmb,
+    ) -> Result<Vec<DocumentoAdnArmazenado>, ErroEmissor> {
+        let mut stmt = self.conn.prepare(
+            "SELECT nsu, chave_acesso, tipo_documento, tipo_evento, xml, data_hora_geracao
+             FROM adn_documentos WHERE empresa = ?1 AND ambiente = ?2 ORDER BY nsu",
+        )?;
+        let linhas = stmt
+            .query_map(params![empresa.as_str(), ambiente_str(ambiente)], |row| {
+                Ok(DocumentoAdnArmazenado {
+                    nsu: row.get(0)?,
+                    chave_acesso: row.get(1)?,
+                    tipo_documento: row.get(2)?,
+                    tipo_evento: row.get(3)?,
+                    xml: row.get(4)?,
+                    data_hora_geracao: row.get(5)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(linhas)
     }
 
     /// Total de operações da empresa no ambiente, para diagnóstico e testes.

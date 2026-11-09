@@ -29,6 +29,7 @@
 mod erro;
 mod nfe;
 mod nfse;
+mod parametros;
 mod uf;
 
 pub use erro::ErroEndpoints;
@@ -36,6 +37,7 @@ pub use nfe::{
     Autorizador, ConsultaNfe, Contingencia, ServicoNfe, autorizador_principal, resolver_nfe,
 };
 pub use nfse::{ConsultaNfse, ServicoNfse, resolver_nfse};
+pub use parametros::{ConsultaParametros, ServicoParametros, resolver_parametros};
 pub use uf::Uf;
 
 /// Data em que as URLs deste crate foram conferidas nas fontes oficiais.

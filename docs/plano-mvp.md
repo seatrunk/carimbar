@@ -76,7 +76,7 @@ Construir DPS, emissão, consulta e eventos; integrar Emissor, journal, idempot�
 
 - [x] [#11](https://github.com/seatrunk/carimbar/issues/11) — Implementar DPS e emissão, consulta e eventos da NFS-e Nacional.
 - [x] [#13](https://github.com/seatrunk/carimbar/issues/13) — Implementar Emissor, journal, idempotência e bloqueios de produção.
-- [ ] [#14](https://github.com/seatrunk/carimbar/issues/14) — Implementar distribuição ADN por NSU e parametrização municipal.
+- [x] [#14](https://github.com/seatrunk/carimbar/issues/14) — Implementar distribuição ADN por NSU e parametrização municipal.
 
 Entrega da #11: modelo da DPS v1.01 com Id derivado dos campos, diferenças de
 produção e produção restrita, grupos obrigatórios e IBS/CBS, serialização na
@@ -96,6 +96,16 @@ vinculada ao CNPJ, certificado da empresa e kill switch `CARIMBAR_PRODUCAO`.
 Testes cobrem repetição, conteúdo divergente, reinício, timeout, concorrência
 entre conexões, kill switch e divergência de CNPJ. O primeiro fluxo local de
 NFS-e roda com transporte simulado.
+
+Entrega da #14: cliente ADN para `GET /contribuintes/DFe/{NSU}` com leitura
+PascalCase, GZip/base64, tratamento de 400/404 com corpo válido e cursor por
+empresa/ambiente. A sincronização persiste documentos e cursor na mesma
+transação, deduplica NSU, retoma após reinício, respeita limite de páginas e
+mantém o cursor anterior em falha. A API de parâmetros municipais cobre convênio,
+alíquota/histórico, benefício, regimes especiais e retenções, com cache por
+ambiente/município, TTL e atualização explícita. A fachada expõe essas operações
+sem duplicar transporte.
+
 
 Critério do marco: Fluxo completo com transporte simulado pelas APIs públicas, persistência e retomada; timeout não gera reenvio cego nem nota duplicada.
 

@@ -25,7 +25,7 @@ domínio conhece CLI, MCP ou Python.
 | `carimbar-transport` | HTTP mTLS, SOAP 1.2 e JSON, timeouts e classificação de falhas | Implementado (#10); sem raízes embutidas |
 | `carimbar-endpoints` | Tabela UF × modelo × ambiente × serviço, versionada e datada | Implementado (#10); URLs conferidas em 2026-11-08 |
 | `carimbar-vault` | Cofre multiempresa, envelope encryption e auditoria | Implementado (#12); só os segredos são cifrados |
-| `carimbar-nfse` | DPS, NFS-e, eventos, ADN e parametrização municipal | DPS, emissão, consulta e cancelamento (#11); ADN e parâmetros municipais em #14 |
+| `carimbar-nfse` | DPS, NFS-e, eventos, ADN e parametrização municipal | DPS, emissão, consulta e cancelamento (#11); ADN e parâmetros municipais (#14) |
 | `carimbar-nfe` | NF-e 4.00 com IBS/CBS, eventos e contingência SVC | Pendente (#18) |
 | `carimbar-danfe` | DANFSe e DANFE em PDF a partir do XML autorizado | Pendente (#15, #19) |
 | `carimbar` | Fachada `Emissor`, journal, idempotência e bloqueios de produção | Implementado (#13); NFS-e pela fachada |
@@ -413,6 +413,30 @@ sem duplicar regras entre CLI, MCP e Python.
   fonte de certificado. A reconciliação de cancelamento depende de uma consulta
   de eventos que ainda não foi implementada; cancelamentos com resultado
   desconhecido ficam nesse estado até a próxima entrega.
+
+
+## 6.6 Distribuição ADN e parâmetros municipais (#14)
+
+`carimbar-nfse` implementa a distribuição de DF-e do ADN e a API de
+parametrização municipal; a fachada persiste o cursor e os documentos.
+
+- **Distribuição:** `GET /contribuintes/DFe/{NSU}` aceita 400/404 com corpo
+  válido e usa `StatusProcessamento` como sinal. Cada documento traz
+  `ArquivoXml` em GZip/base64 e é descompactado com o mesmo limite de 8 MiB.
+- **Cursor:** o cursor é por empresa e ambiente. Documentos e cursor são
+  gravados na mesma transação; o cursor só avança depois dos inserts. NSU
+  repetido é ignorado, e falha de transporte/escrita deixa o cursor anterior.
+- **Retomada:** `Emissor::sincronizar_adn` limita o número de páginas, permite
+  reinício e expõe os documentos persistidos.
+- **Parâmetros:** convênio, alíquota/histórico, benefício, regimes especiais e
+  retenções usam a base `adn.../parametrizacao`. O cache é em memória, com TTL,
+  chave por ambiente/serviço/parâmetros e atualização forçada; convênio e
+  alíquota têm tipos próprios, e os demais retornam o JSON bruto.
+- **Ausência:** convênio ou alíquota sem parâmetro retorna
+  `ParametroAusente`, em vez de tratar o corpo 400/404 como sucesso vazio.
+- **Limites:** o cache não é persistente entre processos; os demais parâmetros
+  ainda não têm tipos completos. A sincronização não interpreta semanticamente
+  cada evento, apenas preserva o XML e o tipo para as camadas seguintes.
 
 ## 7. Decisões em aberto
 
