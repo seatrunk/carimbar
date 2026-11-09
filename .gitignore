@@ -43,3 +43,6 @@ htmlcov/
 *.keystore
 *.db
 *.sqlite
+
+# resumo redigido da homologação manual
+resumo.json

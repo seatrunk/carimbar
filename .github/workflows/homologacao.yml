@@ -1,0 +1,52 @@
+name: Homologação manual protegida
+
+# Nunca roda em PR ou push. Só por disparo manual e com environment protegido.
+on:
+  workflow_dispatch:
+    inputs:
+      modelo:
+        description: "Modelo a exercitar"
+        type: choice
+        required: true
+        default: ambos
+        options: [nfse, nfe, ambos]
+      confirmar:
+        description: "Digite HOMOLOGAR para confirmar"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CARIMBAR_PRODUCAO: "0"
+
+jobs:
+  homologar:
+    runs-on: ubuntu-latest
+    environment: homologacao
+    steps:
+      - uses: actions/checkout@v5
+      - uses: Swatinem/rust-cache@v2
+      - name: Compila CLI com NF-e
+        run: cargo build -p carimbar-cli --release --features nfe-sha1 --locked
+      - name: Executa o fluxo de homologação
+        env:
+          CARIMBAR_MODELO: ${{ inputs.modelo }}
+          CARIMBAR_HOMOLOGACAO_CONFIRMAR: ${{ inputs.confirmar }}
+          CARIMBAR_BIN: target/release/carimbar
+          CARIMBAR_EMPRESA: ${{ secrets.CARIMBAR_EMPRESA }}
+          CARIMBAR_PFX_B64: ${{ secrets.CARIMBAR_PFX_B64 }}
+          CARIMBAR_SENHA_PFX: ${{ secrets.CARIMBAR_SENHA_PFX }}
+          CARIMBAR_KEK: ${{ secrets.CARIMBAR_KEK }}
+          CARIMBAR_RAIZES_B64: ${{ secrets.CARIMBAR_RAIZES_B64 }}
+          CARIMBAR_DPS_XML_B64: ${{ secrets.CARIMBAR_DPS_XML_B64 }}
+          CARIMBAR_NFE_XML_B64: ${{ secrets.CARIMBAR_NFE_XML_B64 }}
+          CARIMBAR_CANCELAR_CHAVE: ${{ secrets.CARIMBAR_CANCELAR_CHAVE }}
+        run: ./scripts/homologacao.sh
+      - name: Publica apenas o resumo redigido
+        uses: actions/upload-artifact@v4
+        with:
+          name: homologacao-resumo
+          path: resumo.json
+          if-no-files-found: ignore

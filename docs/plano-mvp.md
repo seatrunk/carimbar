@@ -182,6 +182,15 @@ entregues em etapas posteriores.
 - [#20](https://github.com/seatrunk/carimbar/issues/20) depende de [#13](https://github.com/seatrunk/carimbar/issues/13), [#15](https://github.com/seatrunk/carimbar/issues/15), [#18](https://github.com/seatrunk/carimbar/issues/18), [#19](https://github.com/seatrunk/carimbar/issues/19).
 - [#21](https://github.com/seatrunk/carimbar/issues/21) depende de [#13](https://github.com/seatrunk/carimbar/issues/13), [#16](https://github.com/seatrunk/carimbar/issues/16).
 
+
+Harness da #21 entregue: `.github/workflows/homologacao.yml` e
+`scripts/homologacao.sh` rodam só por `workflow_dispatch`, no environment
+`homologacao`, com `CARIMBAR_PRODUCAO=0` e confirmação `HOMOLOGAR`. O script
+importa o A1 em cofre temporário, executa NFS-e/NF-e, consulta, cancelamento
+opcional, DANFSe/DANFE e sincronização ADN, e publica apenas `resumo.json`
+redigido. O procedimento e os segredos estão em `docs/homologacao.md`. A issue
+permanece aberta até a execução real com certificado/dados autorizados.
+
 A homologação [#21](https://github.com/seatrunk/carimbar/issues/21) começa após [#13](https://github.com/seatrunk/carimbar/issues/13) e [#16](https://github.com/seatrunk/carimbar/issues/16),
 mas seu encerramento depende também de [#14](https://github.com/seatrunk/carimbar/issues/14), [#15](https://github.com/seatrunk/carimbar/issues/15), [#17](https://github.com/seatrunk/carimbar/issues/17), [#18](https://github.com/seatrunk/carimbar/issues/18), [#19](https://github.com/seatrunk/carimbar/issues/19), [#20](https://github.com/seatrunk/carimbar/issues/20).
 Essa distinção permite comprovar NFS-e cedo sem declarar o MVP completo.
