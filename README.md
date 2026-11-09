@@ -20,6 +20,7 @@ O núcleo é escrito em Rust e conversa direto com a SEFAZ e com o ADN (Ambiente
 - [Por que carimbar](#por-que-carimbar)
 - [Funcionalidades](#funcionalidades)
 - [Instalação](#instalação)
+  - [Plataformas suportadas (wheels do PyPI)](#plataformas-suportadas-wheels-do-pypi)
 - [Uso rápido](#uso-rápido)
   - [Python](#python)
   - [CLI](#cli)
@@ -67,7 +68,7 @@ O carimbar existe para quem quer emitir direto, com:
 
 ## Instalação
 
-`carimbar` 0.0.2 e `carimbar-cli` 0.0.2 já estão no crates.io. A publicação no PyPI ainda está pendente. Enquanto o pacote Python não existe, compile a partir do repositório:
+`carimbar` 0.0.2 e `carimbar-cli` 0.0.2 já estão no crates.io. O pacote Python `carimbar` sai no PyPI a partir da 0.0.3. Para compilar a partir do repositório:
 
 ```bash
 git clone https://github.com/seatrunk/carimbar.git
@@ -91,6 +92,23 @@ pip install dist/*.whl
 | maturin | `>=1.9,<2` |
 
 O build Rust padrão não usa OpenSSL. A feature `nfe-sha1` é opt-in, e o wheel Python já a habilita com OpenSSL vendored.
+
+### Plataformas suportadas (wheels do PyPI)
+
+A partir da 0.0.3 o PyPI recebe wheels **abi3** para Python ≥ 3.9, na matriz do job `wheels` de `.github/workflows/release.yml`:
+
+- Linux x86_64 glibc (`manylinux: auto`). A tag real do wheel, confirmada no job `wheel` do CI (run [42718989553](https://github.com/seatrunk/carimbar/actions/runs/42718989553), imagem `quay.io/pypa/manylinux2014_x86_64`), é `manylinux2014_x86_64.manylinux_2_17_x86_64` (`manylinux_2_17` / manylinux2014).
+- Linux aarch64 glibc `manylinux_2_28`.
+- Linux x86_64 musl `musllinux_1_2`.
+- macOS x86_64 (Intel).
+- macOS arm64 (Apple Silicon).
+- Windows x64.
+
+Não há wheel musllinux aarch64 nem Windows arm64. Nessas plataformas não há wheel e a instalação cai no sdist.
+
+O wheel linux-aarch64 é `manylinux_2_28` (glibc ≥ 2.28) e não instala no Amazon Linux 2 em Graviton (glibc 2.26) nem no Ubuntu 18.04 (glibc 2.27). Motivo: o `ring` 0.17 não compila com o gcc 4.8.5 da imagem manylinux2014.
+
+Alternativas: instalar pela fonte (sdist, `pip install --no-binary carimbar carimbar` ou o fallback automático do pip; exige toolchain Rust ≥ 1.89 e Perl para o OpenSSL vendored) ou usar Amazon Linux 2023.
 
 ### Migração de crates (0.0.1 → 0.0.2)
 

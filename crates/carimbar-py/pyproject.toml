@@ -5,6 +5,8 @@ build-backend = "maturin"
 [project]
 name = "carimbar"
 description = "Emissão de NF-e e NFS-e Nacional para devs e agentes de IA"
+# O readme herdado do Cargo não entra no PKG-INFO; o PyPI usa este campo.
+readme = "../../README.md"
 requires-python = ">=3.9"
 license = "Apache-2.0"
 dynamic = ["version"]
