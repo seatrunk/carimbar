@@ -336,6 +336,7 @@ dependencies = [
  "carimbar-danfe",
  "carimbar-dsig",
  "carimbar-endpoints",
+ "carimbar-nfe",
  "carimbar-nfse",
  "carimbar-transport",
  "carimbar-types",
@@ -432,7 +433,13 @@ dependencies = [
 name = "carimbar-nfe"
 version = "0.0.2"
 dependencies = [
+ "carimbar-dsig",
+ "carimbar-endpoints",
+ "carimbar-nfse",
+ "carimbar-transport",
  "carimbar-types",
+ "carimbar-xml",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

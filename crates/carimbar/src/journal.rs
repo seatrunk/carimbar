@@ -25,6 +25,14 @@ pub enum TipoOperacao {
     EmitirNfse,
     /// Cancelamento de NFS-e.
     CancelarNfse,
+    /// Emissão de NF-e.
+    EmitirNfe,
+    /// Cancelamento de NF-e.
+    CancelarNfe,
+    /// Carta de correção da NF-e.
+    CceNfe,
+    /// Inutilização de numeração da NF-e.
+    InutilizarNfe,
 }
 
 impl TipoOperacao {
@@ -33,6 +41,10 @@ impl TipoOperacao {
         match self {
             Self::EmitirNfse => "nfse:emitir",
             Self::CancelarNfse => "nfse:cancelar",
+            Self::EmitirNfe => "nfe:emitir",
+            Self::CancelarNfe => "nfe:cancelar",
+            Self::CceNfe => "nfe:cce",
+            Self::InutilizarNfe => "nfe:inutilizar",
         }
     }
 
@@ -40,6 +52,10 @@ impl TipoOperacao {
         match texto {
             "nfse:emitir" => Ok(Self::EmitirNfse),
             "nfse:cancelar" => Ok(Self::CancelarNfse),
+            "nfe:emitir" => Ok(Self::EmitirNfe),
+            "nfe:cancelar" => Ok(Self::CancelarNfe),
+            "nfe:cce" => Ok(Self::CceNfe),
+            "nfe:inutilizar" => Ok(Self::InutilizarNfe),
             outro => Err(ErroEmissor::Journal(format!("tipo desconhecido: {outro}"))),
         }
     }
@@ -209,6 +225,14 @@ impl Journal {
                  ultimo_nsu INTEGER NOT NULL,
                  atualizado_em INTEGER NOT NULL,
                  PRIMARY KEY (empresa, ambiente)
+             );
+             CREATE TABLE IF NOT EXISTS numeracao (
+                 empresa TEXT NOT NULL,
+                 ambiente TEXT NOT NULL,
+                 modelo TEXT NOT NULL,
+                 serie INTEGER NOT NULL,
+                 ultimo INTEGER NOT NULL,
+                 PRIMARY KEY (empresa, ambiente, modelo, serie)
              );
              CREATE TABLE IF NOT EXISTS adn_documentos (
                  empresa TEXT NOT NULL,
@@ -492,6 +516,27 @@ impl Journal {
             params![id, xml_evento, agora()],
         )?;
         Ok(())
+    }
+
+    /// Reserva o próximo número da NF-e para empresa/ambiente/modelo/série.
+    ///
+    /// A reserva é atômica no SQLite, inclusive entre conexões.
+    pub fn reservar_numero_nfe(
+        &self,
+        empresa: &Cnpj,
+        ambiente: TpAmb,
+        serie: u32,
+    ) -> Result<u64, ErroEmissor> {
+        let numero: i64 = self.conn.query_row(
+            "INSERT INTO numeracao (empresa, ambiente, modelo, serie, ultimo)
+             VALUES (?1, ?2, '55', ?3, 1)
+             ON CONFLICT(empresa, ambiente, modelo, serie)
+             DO UPDATE SET ultimo = ultimo + 1
+             RETURNING ultimo",
+            params![empresa.as_str(), ambiente_str(ambiente), i64::from(serie)],
+            |row| row.get(0),
+        )?;
+        u64::try_from(numero).map_err(|_| ErroEmissor::Journal("numeração negativa".to_owned()))
     }
 
     /// Cursor de distribuição do ADN, começando em zero.
@@ -833,5 +878,59 @@ mod tests_concorrencia {
                 .reivindicar_envio(operacao.id, "<assinada/>")
                 .expect("segunda")
         );
+    }
+}
+
+#[cfg(test)]
+mod tests_numeracao {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    fn caminho() -> std::path::PathBuf {
+        let unico = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duracao| duracao.as_nanos())
+            .unwrap_or_default();
+        std::env::temp_dir().join(format!("carimbar-numeracao-{unico}.db"))
+    }
+
+    #[test]
+    fn duas_conexoes_reservam_numeros_sem_colisao() {
+        let caminho = caminho();
+        let empresa = Cnpj::parse("00000001000136").expect("CNPJ");
+        let primeira = Journal::abrir(&caminho).expect("journal");
+        primeira.garantir_empresa(&empresa).expect("empresa");
+        let segunda = Journal::abrir(&caminho).expect("journal");
+        let numeros = std::thread::scope(|escopo| {
+            let a = escopo.spawn(move || {
+                let mut lista = Vec::new();
+                for _ in 0..10 {
+                    lista.push(
+                        primeira
+                            .reservar_numero_nfe(&empresa, TpAmb::Homologacao, 1)
+                            .expect("número"),
+                    );
+                }
+                lista
+            });
+            let b = escopo.spawn(move || {
+                let mut lista = Vec::new();
+                for _ in 0..10 {
+                    lista.push(
+                        segunda
+                            .reservar_numero_nfe(&empresa, TpAmb::Homologacao, 1)
+                            .expect("número"),
+                    );
+                }
+                lista
+            });
+            let mut todos = a.join().expect("thread A");
+            todos.extend(b.join().expect("thread B"));
+            todos
+        });
+        let unicos: BTreeSet<u64> = numeros.iter().copied().collect();
+        assert_eq!(unicos.len(), 20);
+        assert_eq!(unicos.iter().next(), Some(&1));
+        assert_eq!(unicos.iter().next_back(), Some(&20));
     }
 }

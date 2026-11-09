@@ -33,8 +33,8 @@ mod erro;
 mod journal;
 
 pub use emissor::{
-    Emissor, KillSwitch, KillSwitchAmbiente, KillSwitchFixo, OperacaoPreparada, ResultadoNfse,
-    ResultadoSincronizacao,
+    Emissor, KillSwitch, KillSwitchAmbiente, KillSwitchFixo, OperacaoPreparada, ResultadoNfe,
+    ResultadoNfse, ResultadoSincronizacao,
 };
 pub use erro::ErroEmissor;
 pub use journal::{EstadoOperacao, Journal, Operacao, TipoOperacao, hash_conteudo};

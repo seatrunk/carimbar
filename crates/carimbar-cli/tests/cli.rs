@@ -267,3 +267,49 @@ fn rejeicao_fiscal_tem_codigo_tres() {
     assert_eq!(saida.status.code(), Some(3));
     assert!(String::from_utf8_lossy(&saida.stderr).contains("rejeitada"));
 }
+
+#[cfg(feature = "nfe-sha1")]
+#[test]
+fn fluxo_nfe_simulado_pela_cli() {
+    let dir = diretorio("nfe");
+    preparar_empresa(&dir);
+    let chave = carimbar_types::ChaveAcesso::com_dv("3526110000000100013655001000000000112345678")
+        .expect("chave")
+        .as_str()
+        .to_owned();
+    let nfe = format!(
+        r#"<NFe xmlns="http://www.portalfiscal.inf.br/nfe"><infNFe versao="4.00" Id="NFe{chave}"><ide><cUF>35</cUF><tpAmb>2</tpAmb></ide><emit><CNPJ>{CNPJ}</CNPJ></emit></infNFe></NFe>"#
+    );
+    std::fs::write(dir.join("nfe.xml"), &nfe).expect("nfe");
+    let corpo = format!(
+        r#"<retEnviNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><cStat>104</cStat><xMotivo>Lote processado</xMotivo><protNFe versao="4.00"><infProt><chNFe>{chave}</chNFe><nProt>135</nProt><cStat>100</cStat><xMotivo>Autorizado</xMotivo></infProt></protNFe></retEnviNFe>"#
+    );
+    let replay =
+        json!({"respostas": [{"url_contem": "nfeautorizacao4", "status": 200, "corpo": corpo}]});
+    std::fs::write(dir.join("replay.json"), replay.to_string()).expect("replay");
+    let saida = rodar(&mut comando(
+        &dir,
+        &[
+            "--empresa",
+            CNPJ,
+            "--json",
+            "emitir-nfe",
+            "--nfe",
+            "nfe.xml",
+            "--saida",
+            "autorizada.xml",
+            "--replay",
+            "replay.json",
+        ],
+    ));
+    assert!(
+        saida.status.success(),
+        "emitir-nfe: stderr={} stdout={}",
+        String::from_utf8_lossy(&saida.stderr),
+        String::from_utf8_lossy(&saida.stdout)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&saida.stdout).expect("JSON");
+    assert_eq!(json["estado"], "autorizada");
+    assert_eq!(json["chave"], chave);
+    assert!(dir.join("autorizada.xml").exists());
+}

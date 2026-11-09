@@ -26,7 +26,7 @@ domínio conhece CLI, MCP ou Python.
 | `carimbar-endpoints` | Tabela UF × modelo × ambiente × serviço, versionada e datada | Implementado (#10); URLs conferidas em 2026-11-08 |
 | `carimbar-vault` | Cofre multiempresa, envelope encryption e auditoria | Implementado (#12); só os segredos são cifrados |
 | `carimbar-nfse` | DPS, NFS-e, eventos, ADN e parametrização municipal | DPS, emissão, consulta e cancelamento (#11); ADN e parâmetros municipais (#14) |
-| `carimbar-nfe` | NF-e 4.00 com IBS/CBS, eventos e contingência SVC | Pendente (#18) |
+| `carimbar-nfe` | NF-e 4.00 com IBS/CBS, eventos e contingência SVC | Implementado (#18) |
 | `carimbar-danfe` | DANFSe e DANFE em PDF a partir do XML autorizado | DANFSe implementado (#15); DANFE em #19 |
 | `carimbar` | Fachada `Emissor`, journal, idempotência e bloqueios de produção | Implementado (#13); NFS-e pela fachada |
 | `carimbar-cli` | CLI local | Implementado (#16) |
@@ -507,6 +507,36 @@ O binário `carimbar` reutiliza a fachada e o cofre; não duplica regras fiscais
 - **Teste:** `tests/protocolo.rs` cobre `initialize` e `tools/list`; os testes
   unitários cobrem fluxo completo com replay, expiração, uso único, gate de
   produção e kill switch.
+
+
+## 6.10 NF-e modelo 55 (#18)
+
+`carimbar-nfe` cobre o fluxo básico de NF-e 4.00 e os serviços SOAP da SEFAZ.
+
+- **Modelo:** `NotaFiscal` com `ide`, emitente, destinatário, itens, totais,
+  pagamento, informações complementares e grupos IBS/CBS. A chave de 44 posições
+  é calculada com cDV a partir de UF, AAMM, CNPJ, modelo, série, número, tpEmis e
+  cNF.
+- **Assinatura:** perfil SHA-1 exigido pelo XSD da NF-e, habilitado pela feature
+  `nfe-sha1`. O build padrão e o grafo padrão continuam sem OpenSSL. XML
+  sintético assinado passa no `nfe_v4.00.xsd` oficial.
+- **Cliente:** SOAP 1.2 para autorização (`indSinc=1`), retorno de recibo,
+  consulta de protocolo, recepção de eventos, inutilização e SVC-AN/SVC-RS.
+  Respostas de autorização, rejeição, recibo e protocolo são tipadas.
+- **Eventos:** cancelamento (`110111`) e carta de correção (`110110`) com
+  assinatura sobre `infEvento`; inutilização com assinatura sobre `infInut`.
+- **Fachada:** `preparar_nfe_xml`, `confirmar_nfe`, `reconciliar_nfe`,
+  `consultar_nfe` e `reservar_numero_nfe`. O journal guarda XML/protocolo,
+  reivindica o envio e reconcilia por consulta. A reserva de número é atômica
+  entre conexões.
+- **Interfaces:** CLI ganhou `emitir-nfe`/`consultar-nfe` e o MCP ganhou
+  `preparar_emissao_nfe`/`confirmar_emissao_nfe`/`consultar_nfe`, todos
+  dependentes da feature `nfe-sha1`.
+- **Limites:** o modelo cobre uma operação de venda simples; comércio exterior,
+  combustíveis, importação/exportação, transporte detalhado, agricultura e
+  grupos opcionais não estão modelados. Eventos e inutilização estão no cliente
+  e na fachada, mas a CLI/MCP expõem apenas emissão/consulta nesta entrega.
+  NFC-e continua fora do MVP.
 
 ## 7. Decisões em aberto
 

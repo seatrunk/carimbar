@@ -17,6 +17,10 @@ include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 name = "carimbar"
 path = "src/main.rs"
 
+[features]
+default = []
+nfe-sha1 = ["carimbar/nfe-sha1"]
+
 [dependencies]
 carimbar.workspace = true
 carimbar-cert.workspace = true

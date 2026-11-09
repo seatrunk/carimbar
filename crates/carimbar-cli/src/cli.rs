@@ -1,12 +1,16 @@
 //! Implementação dos comandos da CLI.
 
 use crate::replay::ReplayExecutor;
+#[cfg(feature = "nfe-sha1")]
+use carimbar::ResultadoNfe;
 use carimbar::{Emissor, ErroEmissor, Journal, ResultadoNfse};
 use carimbar_nfse::{
     ChaveNfse, DataHoraFiscal, ErroNfse, EventoCancelamento, Executor, InscricaoFederal,
     MotivoCancelamento,
 };
 use carimbar_transport::{ClienteMtls, ErroEnvio, ErroTransporte, Opcoes, Requisicao, Resposta};
+#[cfg(feature = "nfe-sha1")]
+use carimbar_types::ChaveAcesso;
 use carimbar_types::{Cnpj, ConfirmacaoProducao};
 use carimbar_vault::{ChaveMestra, Cofre};
 use clap::{Parser, Subcommand};
@@ -100,6 +104,12 @@ impl From<ErroNfse> for ErroCli {
             | ErroNfse::Transporte(_) => Self::transporte(erro.to_string()),
             _ => Self::operacional(erro.to_string()),
         }
+    }
+}
+
+impl From<carimbar_types::ErroTipo> for ErroCli {
+    fn from(erro: carimbar_types::ErroTipo) -> Self {
+        Self::operacional(erro.to_string())
     }
 }
 
@@ -198,6 +208,26 @@ enum Comando {
         /// Onde gravar o DANFSe.
         #[arg(long)]
         pdf_saida: Option<PathBuf>,
+    },
+    /// Emite uma NF-e modelo 55 em XML (requer feature nfe-sha1).
+    #[cfg(feature = "nfe-sha1")]
+    EmitirNfe {
+        /// Arquivo XML da NF-e.
+        #[arg(long)]
+        nfe: PathBuf,
+        /// Onde gravar o XML autorizado.
+        #[arg(long)]
+        saida: Option<PathBuf>,
+    },
+    /// Consulta uma NF-e pela chave (requer feature nfe-sha1).
+    #[cfg(feature = "nfe-sha1")]
+    ConsultarNfe {
+        /// Chave de acesso de 44 posições.
+        #[arg(long)]
+        chave: String,
+        /// Onde gravar o XML retornado.
+        #[arg(long)]
+        saida: Option<PathBuf>,
     },
     /// Consulta uma NFS-e pela chave.
     Consultar {
@@ -490,6 +520,78 @@ fn executar_fiscal(
                     "operação de emissão retornou cancelamento",
                 )),
             }
+        }
+        #[cfg(feature = "nfe-sha1")]
+        Comando::EmitirNfe { nfe, saida } => {
+            let xml = fs::read_to_string(&nfe).map_err(|erro| {
+                ErroCli::uso(format!("não foi possível ler {}: {erro}", nfe.display()))
+            })?;
+            let preparada = emissor.preparar_nfe_xml(&xml)?;
+            let operacao = preparada.id();
+            match emissor.confirmar_nfe(operacao)? {
+                ResultadoNfe::Autorizada { chave, xml, .. } => {
+                    if let Some(caminho) = &saida {
+                        fs::write(caminho, &xml).map_err(|erro| {
+                            ErroCli::operacional(format!(
+                                "não foi possível gravar {}: {erro}",
+                                caminho.display()
+                            ))
+                        })?;
+                    }
+                    imprimir(
+                        cli.json,
+                        &json!({"operacao": operacao, "estado": "autorizada", "chave": chave.as_str()}),
+                        &format!("NF-e autorizada: {chave} (operação {operacao})"),
+                    );
+                    Ok(())
+                }
+                ResultadoNfe::Recibo { recibo, .. } => Err(ErroCli::transporte(format!(
+                    "lote recebido; consulte o recibo {recibo}"
+                ))),
+                ResultadoNfe::Rejeitada { codigo, motivo, .. } => Err(ErroCli::fiscal(format!(
+                    "NF-e rejeitada: {codigo} {motivo}"
+                ))),
+                ResultadoNfe::Desconhecida { detalhe, .. } => Err(ErroCli::transporte(format!(
+                    "resultado desconhecido: {detalhe}"
+                ))),
+                ResultadoNfe::NaoEncontrada { detalhe, .. } => Err(ErroCli::transporte(format!(
+                    "NF-e não encontrada: {detalhe}"
+                ))),
+                ResultadoNfe::Cancelada { protocolo, .. } => Err(ErroCli::fiscal(format!(
+                    "NF-e cancelada: {}",
+                    protocolo.unwrap_or_default()
+                ))),
+            }
+        }
+        #[cfg(feature = "nfe-sha1")]
+        Comando::ConsultarNfe { chave, saida } => {
+            let chave = ChaveAcesso::parse(&chave)?;
+            let consulta = emissor.consultar_nfe(&chave)?;
+            let xml = consulta
+                .protocolo
+                .as_ref()
+                .map(|protocolo| protocolo.xml.clone())
+                .unwrap_or_default();
+            if let Some(caminho) = &saida {
+                fs::write(caminho, &xml).map_err(|erro| {
+                    ErroCli::operacional(format!(
+                        "não foi possível gravar {}: {erro}",
+                        caminho.display()
+                    ))
+                })?;
+            }
+            imprimir(
+                cli.json,
+                &json!({
+                    "chave": chave.as_str(),
+                    "codigo": consulta.codigo,
+                    "motivo": consulta.motivo,
+                    "protocolo": consulta.protocolo.map(|p| p.numero),
+                    "xml": xml,
+                }),
+                &format!("NF-e {}: {} {}", chave, consulta.codigo, consulta.motivo),
+            );
+            Ok(())
         }
         Comando::Consultar { chave, saida } => {
             let chave = ChaveNfse::parse(&chave, emissor.ambiente().tp_amb())?;
