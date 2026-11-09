@@ -20,7 +20,8 @@
 //! - Produção só é habilitada por [`Emissor::promover_producao`], com
 //!   `ConfirmacaoProducao` vinculada ao CNPJ e certificado da empresa.
 //! - [`KillSwitchAmbiente`] lê `CARIMBAR_PRODUCAO` antes de qualquer operação
-//!   de produção; o valor `0` bloqueia.
+//!   de produção; só o valor `1` (depois de `trim()`) libera. Ausência, vazio
+//!   e qualquer outro valor bloqueiam.
 //! - O journal é local e não processa segredos: só XML fiscal, hashes,
 //!   identificadores e estados.
 //!

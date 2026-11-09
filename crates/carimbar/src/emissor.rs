@@ -39,21 +39,24 @@ pub trait KillSwitch: Send + Sync {
 
 /// Kill switch que lê `CARIMBAR_PRODUCAO` a cada operação.
 ///
-/// A ausência da variável libera produção; os valores `0`, `false`, `nao` e
-/// `não` bloqueiam. O CI usa `0`.
+/// Produção só é permitida quando a variável vale exatamente `1` depois de
+/// `trim()`. Ausência, vazio e qualquer outro valor (`0`, `true`, `sim`, `2`,
+/// `off`, lixo) bloqueiam. O CI usa `0`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct KillSwitchAmbiente;
 
 impl KillSwitch for KillSwitchAmbiente {
     fn producao_permitida(&self) -> bool {
-        match std::env::var("CARIMBAR_PRODUCAO") {
-            Ok(valor) => {
-                let valor = valor.trim().to_ascii_lowercase();
-                !matches!(valor.as_str(), "0" | "false" | "nao" | "não")
-            }
-            Err(_) => true,
-        }
+        producao_permitida_para(std::env::var("CARIMBAR_PRODUCAO").ok().as_deref())
     }
+}
+
+/// Decide se produção é permitida para o valor bruto de `CARIMBAR_PRODUCAO`.
+///
+/// Somente `1` (depois de `trim()`) libera; qualquer outro valor ou a ausência
+/// bloqueiam. Isolada em função pura para ser testada sem tocar no ambiente.
+fn producao_permitida_para(valor: Option<&str>) -> bool {
+    valor.is_some_and(|valor| valor.trim() == "1")
 }
 
 /// Kill switch fixo, para testes e processos com política própria.
@@ -1252,4 +1255,59 @@ fn formatar_rejeicao(rejeicao: &Rejeicao) -> String {
         })
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+#[cfg(test)]
+mod testes {
+    use super::producao_permitida_para;
+
+    #[test]
+    fn ausencia_bloqueia() {
+        assert!(!producao_permitida_para(None));
+    }
+
+    #[test]
+    fn zero_bloqueia() {
+        assert!(!producao_permitida_para(Some("0")));
+    }
+
+    #[test]
+    fn um_libera() {
+        assert!(producao_permitida_para(Some("1")));
+    }
+
+    #[test]
+    fn um_com_espacos_libera() {
+        assert!(producao_permitida_para(Some(" 1 ")));
+    }
+
+    #[test]
+    fn vazio_bloqueia() {
+        assert!(!producao_permitida_para(Some("")));
+    }
+
+    #[test]
+    fn true_bloqueia() {
+        assert!(!producao_permitida_para(Some("true")));
+    }
+
+    #[test]
+    fn sim_bloqueia() {
+        assert!(!producao_permitida_para(Some("sim")));
+    }
+
+    #[test]
+    fn dois_bloqueia() {
+        assert!(!producao_permitida_para(Some("2")));
+    }
+
+    #[test]
+    fn lixo_bloqueia() {
+        assert!(!producao_permitida_para(Some("lixo")));
+    }
+
+    #[test]
+    fn espacos_em_branco_bloqueiam() {
+        assert!(!producao_permitida_para(Some("   ")));
+    }
 }

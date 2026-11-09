@@ -1,7 +1,9 @@
 //! Testes de integração da fachada com PKI sintética e transporte simulado.
 //! Nada acessa SEFAZ, Sefin ou ADN.
 
-use carimbar::{Emissor, EstadoOperacao, Journal, KillSwitch, KillSwitchFixo, ResultadoNfse};
+use carimbar::{
+    Emissor, EstadoOperacao, Journal, KillSwitch, KillSwitchAmbiente, KillSwitchFixo, ResultadoNfse,
+};
 use carimbar_nfse::{
     ChaveNfse, CodigoMunicipio, DataFiscal, DataHoraFiscal, Dps, Executor, InscricaoFederal,
     LocalPrestacao, NumeroDps, Prestador, RegimeTributario, SerieDps, Servico, TipoEmitente,
@@ -452,6 +454,16 @@ fn producao_exige_promocao_e_respeita_o_kill_switch() {
             .estado,
         EstadoOperacao::Preparada
     );
+}
+
+#[test]
+fn kill_switch_ambiente_le_a_variavel_de_ambiente() {
+    // O workspace proíbe `unsafe`, então não mutamos o ambiente no teste. A
+    // cobertura dos valores fica na função pura; aqui confirmamos que a leitura
+    // via trait respeita o contrato com o valor atual do processo.
+    let atual = std::env::var("CARIMBAR_PRODUCAO").ok();
+    let esperado = atual.as_deref().is_some_and(|valor| valor.trim() == "1");
+    assert_eq!(KillSwitchAmbiente.producao_permitida(), esperado);
 }
 
 #[test]
