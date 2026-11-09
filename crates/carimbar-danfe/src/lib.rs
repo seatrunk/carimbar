@@ -23,9 +23,14 @@
 
 #![deny(missing_docs)]
 
+mod danfe;
 mod danfse;
 mod erro;
 
+pub use danfe::{
+    DadosDanfe as DadosDanfeNfe, ItemDanfe, OpcoesDanfe as OpcoesDanfeNfe, TotaisDanfe,
+    extrair_dados_nfe,
+};
 pub use danfse::{DadosDanfse, OpcoesDanfse, PessoaDanfse, extrair_dados};
 pub use erro::ErroDanfe;
 
@@ -49,4 +54,26 @@ pub fn gerar_danfse_com_evento(
 ) -> Result<Vec<u8>, ErroDanfe> {
     let cancelada = xml_evento.is_some_and(danfse::evento_cancela);
     danfse::gerar(xml_autorizado, &OpcoesDanfse { cancelada })
+}
+
+/// Gera o DANFE de uma NF-e autorizada (`nfeProc`).
+pub fn gerar_danfe(xml_autorizado: &str) -> Result<Vec<u8>, ErroDanfe> {
+    danfe::gerar_danfe(xml_autorizado, &danfe::OpcoesDanfe::default())
+}
+
+/// Gera o DANFE com opções explícitas.
+pub fn gerar_danfe_com_opcoes(
+    xml_autorizado: &str,
+    opcoes: &danfe::OpcoesDanfe,
+) -> Result<Vec<u8>, ErroDanfe> {
+    danfe::gerar_danfe(xml_autorizado, opcoes)
+}
+
+/// Gera o DANFE e marca cancelamento quando o evento informado for de cancelamento.
+pub fn gerar_danfe_com_evento(
+    xml_autorizado: &str,
+    xml_evento: Option<&str>,
+) -> Result<Vec<u8>, ErroDanfe> {
+    let cancelada = xml_evento.is_some_and(danfe::evento_cancela_nfe);
+    danfe::gerar_danfe(xml_autorizado, &danfe::OpcoesDanfe { cancelada })
 }

@@ -27,7 +27,7 @@ domínio conhece CLI, MCP ou Python.
 | `carimbar-vault` | Cofre multiempresa, envelope encryption e auditoria | Implementado (#12); só os segredos são cifrados |
 | `carimbar-nfse` | DPS, NFS-e, eventos, ADN e parametrização municipal | DPS, emissão, consulta e cancelamento (#11); ADN e parâmetros municipais (#14) |
 | `carimbar-nfe` | NF-e 4.00 com IBS/CBS, eventos e contingência SVC | Implementado (#18) |
-| `carimbar-danfe` | DANFSe e DANFE em PDF a partir do XML autorizado | DANFSe implementado (#15); DANFE em #19 |
+| `carimbar-danfe` | DANFSe e DANFE em PDF a partir do XML autorizado | DANFSe (#15) e DANFE (#19) implementados |
 | `carimbar` | Fachada `Emissor`, journal, idempotência e bloqueios de produção | Implementado (#13); NFS-e pela fachada |
 | `carimbar-cli` | CLI local | Implementado (#16) |
 | `carimbar-mcp` | MCP local em duas fases (`preparar_*`/`confirmar_*`) | Implementado (#17) |
@@ -537,6 +537,27 @@ O binário `carimbar` reutiliza a fachada e o cofre; não duplica regras fiscais
   grupos opcionais não estão modelados. Eventos e inutilização estão no cliente
   e na fachada, mas a CLI/MCP expõem apenas emissão/consulta nesta entrega.
   NFC-e continua fora do MVP.
+
+
+## 6.11 DANFE em PDF (#19)
+
+`carimbar-danfe` gera o DANFE de uma NF-e autorizada (`nfeProc`).
+
+- **Entrada:** exige `nfeProc` com `NFe` e `protNFe/infProt/cStat` `100` ou
+  `101`. XML sem protocolo ou com outro status é recusado.
+- **Transcrição:** chave, protocolo, número, série, emissão, natureza da
+  operação, emitente, destinatário, itens, totais, transporte, pagamento e
+  informações complementares vêm do XML, sem recálculo.
+- **Layout:** A4, cabeçalho, código de barras Code128C da chave, blocos de
+  emitente/destinatário, tabela de itens, totais e rodapé numerado. Itens longos
+  quebram em várias páginas com cabeçalho repetido.
+- **Marcações:** homologação, contingência (`tpEmis != 1`) e cancelamento
+  (`cStat=101`, evento `e101101`/`e105102` ou opção explícita).
+- **Backend:** o mesmo `printpdf` do DANFSe; o código de barras usa
+  `barcoders` Code128C. A cobertura de glifos continua sendo a das fontes
+  padrão Helvetica.
+- **Integração:** `Emissor::gerar_danfe_nfe` só gera para operação NF-e
+  `autorizada` no journal. CLI e MCP expõem a geração sob `nfe-sha1`.
 
 ## 7. Decisões em aberto
 

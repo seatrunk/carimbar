@@ -392,6 +392,12 @@ struct ConsultarNfeReq {
     chave: String,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct GerarDanfeNfeReq {
+    empresa: String,
+    operacao: i64,
+}
+
 #[tool_router]
 impl ServidorCarimbar {
     /// Prepara uma emissão de NFS-e sem enviar.
@@ -653,6 +659,29 @@ impl ServidorCarimbar {
         #[cfg(not(feature = "nfe-sha1"))]
         {
             let _ = (preparacao, nfe_xml);
+            Err("NF-e requer a feature nfe-sha1".to_owned())
+        }
+    }
+
+    /// Gera o DANFE de uma NF-e autorizada.
+    #[tool(description = "Gera o DANFE em PDF de uma NF-e autorizada e devolve o PDF em base64.")]
+    #[allow(clippy::needless_return)]
+    fn gerar_danfe_nfe(
+        &self,
+        Parameters(req): Parameters<GerarDanfeNfeReq>,
+    ) -> Result<Json<Value>, String> {
+        let empresa = parse_empresa(&req.empresa)?;
+        #[cfg(feature = "nfe-sha1")]
+        {
+            let pdf = self.com_emissor(empresa, |emissor| emissor.gerar_danfe_nfe(req.operacao))?;
+            return Ok(Json(json!({
+                "operacao": req.operacao,
+                "pdf_base64": base64::engine::general_purpose::STANDARD.encode(pdf),
+            })));
+        }
+        #[cfg(not(feature = "nfe-sha1"))]
+        {
+            let _ = (empresa, req.operacao);
             Err("NF-e requer a feature nfe-sha1".to_owned())
         }
     }
