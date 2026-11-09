@@ -67,7 +67,7 @@ O carimbar existe para quem quer emitir direto, com:
 
 ## Instalação
 
-A publicação da versão `0.0.2` no crates.io e no PyPI ainda está pendente. Enquanto isso, compile a partir do repositório:
+`carimbar` 0.0.2 e `carimbar-cli` 0.0.2 já estão no crates.io. A publicação no PyPI ainda está pendente. Enquanto o pacote Python não existe, compile a partir do repositório:
 
 ```bash
 git clone https://github.com/seatrunk/carimbar.git
@@ -213,7 +213,8 @@ Importação de certificado, promoção de produção e segredos ficam exclusiva
 |-------|----------|
 | MVP implementado | Concluído, com testes locais |
 | Homologação real | Pendente (manual e protegida) |
-| Publicação `0.0.2` (crates.io e PyPI) | Pendente (manual) |
+| Publicação `0.0.2` no crates.io | Publicada (`carimbar` e `carimbar-cli`) |
+| Publicação `0.0.2` no PyPI | Pendente (`carimbar` ausente) |
 | Uso em produção | Não recomendado |
 
 Veja [release](docs/release.md) e [homologação](docs/homologacao.md) para os procedimentos.

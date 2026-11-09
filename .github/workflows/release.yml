@@ -277,9 +277,9 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    # Só dois crates: `carimbar` (update, já existe) e `carimbar-cli` (novo).
-    # O limite de crate novo (1 a cada 10 min) nem é atingido; a folga cobre a
-    # espera de índice e eventuais 429.
+    # `carimbar` 0.0.2 e `carimbar-cli` 0.0.2 já estão no índice (token, run
+    # 42705514774). Daqui em diante os dois são publish-update; o OIDC cobre
+    # os dois. A folga do timeout cobre espera de índice e um 429.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
