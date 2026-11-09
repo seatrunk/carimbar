@@ -219,6 +219,16 @@ enum Comando {
         #[arg(long)]
         saida: Option<PathBuf>,
     },
+    /// Gera o DANFE de uma NF-e autorizada (requer feature nfe-sha1).
+    #[cfg(feature = "nfe-sha1")]
+    DanfeNfe {
+        /// Identificador local da operação.
+        #[arg(long)]
+        operacao: i64,
+        /// Arquivo PDF de saída.
+        #[arg(long)]
+        saida: PathBuf,
+    },
     /// Consulta uma NF-e pela chave (requer feature nfe-sha1).
     #[cfg(feature = "nfe-sha1")]
     ConsultarNfe {
@@ -562,6 +572,22 @@ fn executar_fiscal(
                     protocolo.unwrap_or_default()
                 ))),
             }
+        }
+        #[cfg(feature = "nfe-sha1")]
+        Comando::DanfeNfe { operacao, saida } => {
+            let pdf = emissor.gerar_danfe_nfe(operacao)?;
+            fs::write(&saida, pdf).map_err(|erro| {
+                ErroCli::operacional(format!(
+                    "não foi possível gravar {}: {erro}",
+                    saida.display()
+                ))
+            })?;
+            imprimir(
+                cli.json,
+                &json!({"operacao": operacao, "pdf": saida.display().to_string()}),
+                &format!("DANFE gravado em {}", saida.display()),
+            );
+            Ok(())
         }
         #[cfg(feature = "nfe-sha1")]
         Comando::ConsultarNfe { chave, saida } => {

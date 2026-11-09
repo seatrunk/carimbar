@@ -265,3 +265,40 @@ fn numeracao_reserva_de_forma_atomica() {
         1
     );
 }
+
+fn nfe_proc_autorizado() -> String {
+    let chave = carimbar_types::ChaveAcesso::com_dv("3526110000000100013655001000000000112345678")
+        .expect("chave");
+    format!(
+        r#"<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><NFe><infNFe versao="4.00" Id="NFe{}"><ide><cUF>35</cUF><natOp>Venda</natOp><mod>55</mod><serie>1</serie><nNF>1</nNF><dhEmi>2026-11-09T10:00:00-03:00</dhEmi><tpNF>1</tpNF><tpEmis>1</tpEmis><tpAmb>2</tpAmb></ide><emit><CNPJ>{CNPJ}</CNPJ><xNome>Empresa Sintetica</xNome><enderEmit><xLgr>Rua A</xLgr><nro>1</nro><xBairro>Centro</xBairro><cMun>3550308</cMun><xMun>Sao Paulo</xMun><UF>SP</UF><CEP>01001000</CEP></enderEmit><IE>123456789</IE></emit><det nItem="1"><prod><cProd>1</cProd><xProd>Produto</xProd><NCM>00000000</NCM><CFOP>5102</CFOP><uCom>UN</uCom><qCom>1.0000</qCom><vUnCom>10.0000000000</vUnCom><vProd>10.00</vProd></prod><imposto></imposto></det><total><ICMSTot><vBC>0.00</vBC><vICMS>0.00</vICMS><vProd>10.00</vProd><vFrete>0.00</vFrete><vSeg>0.00</vSeg><vDesc>0.00</vDesc><vIPI>0.00</vIPI><vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS><vNF>10.00</vNF></ICMSTot></total><transp><modFrete>9</modFrete></transp><pag><detPag><tPag>01</tPag><vPag>10.00</vPag></detPag></pag></infNFe></NFe><protNFe versao="4.00"><infProt><chNFe>{}</chNFe><nProt>135</nProt><cStat>100</cStat><xMotivo>Autorizado</xMotivo></infProt></protNFe></nfeProc>"#,
+        chave, chave
+    )
+}
+
+#[test]
+fn gera_danfe_de_operacao_autorizada_no_journal() {
+    let empresa = Cnpj::parse(CNPJ).expect("CNPJ");
+    let mut journal = Journal::em_memoria().expect("journal");
+    journal.garantir_empresa(&empresa).expect("empresa");
+    let xml = nfe_proc_autorizado();
+    let chave = carimbar_types::ChaveAcesso::com_dv("3526110000000100013655001000000000112345678")
+        .expect("chave");
+    let (operacao, _) = journal
+        .criar(
+            &empresa,
+            TpAmb::Homologacao,
+            carimbar::TipoOperacao::EmitirNfe,
+            chave.as_str(),
+            &carimbar::hash_conteudo(&xml),
+            &xml,
+        )
+        .expect("operação");
+    journal
+        .marcar_autorizada(operacao.id, chave.as_str(), &xml, Some("135"))
+        .expect("autorizada");
+    let cofre = Cofre::criar_em_memoria(Box::new(ChaveMestra::de_bytes(KEK))).expect("cofre");
+    let executor = ExecutorFalso::com(vec![]);
+    let emissor = Emissor::novo(cofre, journal, empresa, &executor).expect("emissor");
+    let pdf = emissor.gerar_danfe_nfe(operacao.id).expect("DANFE");
+    assert!(pdf.starts_with(b"%PDF"));
+}

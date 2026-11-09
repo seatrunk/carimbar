@@ -14,6 +14,7 @@ categories.workspace = true
 include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
+barcoders = { version = "2", default-features = false, features = ["std"] }
 carimbar-types.workspace = true
 carimbar-xml.workspace = true
 printpdf = { version = "0.12", default-features = false }

@@ -145,7 +145,7 @@ Critério do marco: NFS-e emitida e consultada em ambiente de teste, com PDF e i
 Acrescentar NF-e com IBS/CBS, autorização, consulta, eventos, inutilização e contingência SVC; gerar DANFE e ampliar os comandos CLI/MCP.
 
 - [x] [#18](https://github.com/seatrunk/carimbar/issues/18) — Implementar NF-e modelo 55 com IBS/CBS, eventos e contingência SVC.
-- [ ] [#19](https://github.com/seatrunk/carimbar/issues/19) — Gerar DANFE em PDF a partir da NF-e autorizada.
+- [x] [#19](https://github.com/seatrunk/carimbar/issues/19) — Gerar DANFE em PDF a partir da NF-e autorizada.
 
 Critério do marco: Fluxo NF-e integrado ao mesmo journal, cofre e controles de produção, com XML autorizado e DANFE; evidência de homologação registrada na issue transversal.
 

@@ -573,6 +573,24 @@ impl<'a> Emissor<'a> {
         }
     }
 
+    /// Gera o DANFE de uma NF-e autorizada persistida no journal.
+    pub fn gerar_danfe_nfe(&self, id: i64) -> Result<Vec<u8>, ErroEmissor> {
+        let operacao = self.journal.operacao(id)?;
+        self.conferir_operacao(&operacao, TipoOperacao::EmitirNfe)?;
+        if operacao.estado != EstadoOperacao::Autorizada {
+            return Err(ErroEmissor::EstadoInvalido {
+                id,
+                estado: operacao.estado.as_str(),
+                acao: "gerar DANFE",
+            });
+        }
+        let xml = operacao
+            .xml_retorno
+            .as_deref()
+            .ok_or_else(|| ErroEmissor::Journal("NF-e autorizada sem XML".to_owned()))?;
+        Ok(carimbar_danfe::gerar_danfe(xml)?)
+    }
+
     /// Gera o DANFSe de uma operação autorizada.
     ///
     /// O PDF é montado a partir do XML autorizado persistido no journal; não
