@@ -31,7 +31,7 @@ domínio conhece CLI, MCP ou Python.
 | `carimbar` | Fachada `Emissor`, journal, idempotência e bloqueios de produção | Implementado (#13); NFS-e pela fachada |
 | `carimbar-cli` | CLI local | Implementado (#16) |
 | `carimbar-mcp` | MCP local em duas fases (`preparar_*`/`confirmar_*`) | Implementado (#17) |
-| `carimbar-py` | Binding Python síncrono | Esqueleto; API completa em #20 |
+| `carimbar-py` | Binding Python síncrono | Implementado (#20); Cofre, Emissor, NFS-e/NF-e e PDFs |
 
 Decisões transversais já registradas no código:
 
@@ -558,6 +558,29 @@ O binário `carimbar` reutiliza a fachada e o cofre; não duplica regras fiscais
   padrão Helvetica.
 - **Integração:** `Emissor::gerar_danfe_nfe` só gera para operação NF-e
   `autorizada` no journal. CLI e MCP expõem a geração sob `nfe-sha1`.
+
+
+## 6.12 Binding Python (#20)
+
+O pacote `carimbar` no PyPI é construído pelo maturin sobre `carimbar-py`.
+
+- **API:** `Cofre` (importar/listar/remover/rotação/auditoria), `Emissor`
+  (promover/rebaixar, preparar/emitir/confirmar, consultar, cancelar, DANFSe,
+  ADN, parâmetros e estado) e `Dinheiro`.
+- **Dinheiro:** entra e sai como texto; `Dinheiro(float)` é recusado pelo
+  binding. Somas usam `Decimal`/`Dinheiro`, sem conversão por `float`.
+- **Erros:** `ErroValidacao`, `ErroFiscal`, `ErroTransporte`, `ErroProducao`,
+  `ErroConflito` e `ErroCofre`, todos derivados de `ErroCarimbar`.
+- **GIL:** operações de rede/cofre no `Emissor` usam `Python::detach`; o cofre
+  usa `Mutex<Cofre>` para satisfazer o contrato `Send + Sync` do PyO3.
+- **NF-e:** o wheel habilita `nfe-sha1` com OpenSSL vendored, então
+  `emitir_nfe`, `consultar_nfe` e `gerar_danfe_nfe` funcionam no pacote
+  distribuído. O build Rust padrão continua sem OpenSSL.
+- **Testes:** `pytest` sobre o wheel instalado cobre metadados sem segredo,
+  precisão de dinheiro, NFS-e e NF-e com replay, e geração dos dois PDFs. O
+  sdist inclui `python/**` e `tests/*.py`.
+- **Limites:** a API é síncrona; replay e raízes de confiança são
+  responsabilidade do chamador.
 
 ## 7. Decisões em aberto
 

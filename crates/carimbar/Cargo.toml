@@ -16,6 +16,7 @@ include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 [features]
 default = []
 nfe-sha1 = ["carimbar-nfe/nfe-sha1"]
+nfe-sha1-vendored = ["nfe-sha1", "carimbar-nfe/nfe-sha1-vendored"]
 
 [dependencies]
 carimbar-cert.workspace = true

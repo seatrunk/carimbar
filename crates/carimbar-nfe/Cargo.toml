@@ -16,6 +16,7 @@ include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 [features]
 default = []
 nfe-sha1 = ["carimbar-dsig/nfe-sha1"]
+nfe-sha1-vendored = ["nfe-sha1", "carimbar-dsig/nfe-sha1-vendored"]
 xsd = ["carimbar-xml/xsd"]
 
 [dependencies]

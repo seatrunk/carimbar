@@ -106,9 +106,16 @@ jobs:
           command: build
           args: --release --out dist
           manylinux: auto
-      - name: Instala o wheel e faz smoke test
+          before-script-linux: |
+            if command -v dnf >/dev/null 2>&1; then
+              dnf install -y perl-IPC-Cmd perl-Time-Piece
+            else
+              yum install -y perl-IPC-Cmd perl-Time-Piece
+            fi
+      - name: Instala o wheel e roda pytest
         run: |
-          pip install crates/carimbar-py/dist/*.whl
+          pip install pytest crates/carimbar-py/dist/*.whl
+          pytest crates/carimbar-py/tests -q
           python -c "import carimbar as c; assert c.validar_cnpj('00.000.001/0001-36'); assert not c.validar_cnpj('00000001000137'); print('ok', c.__version__)"
 
   package:

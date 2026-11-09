@@ -13,3 +13,5 @@ classifiers = ["Programming Language :: Rust", "Development Status :: 1 - Planni
 [tool.maturin]
 python-source = "python"
 module-name = "carimbar._carimbar"
+features = ["nfe-sha1"]
+sdist-include = ["python/**/*.py", "tests/*.py"]

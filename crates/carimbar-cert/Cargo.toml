@@ -17,6 +17,7 @@ include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 default = []
 # Backend apenas para RSA-SHA1 exigido pelo contrato legado da NF-e.
 nfe-sha1 = ["dep:openssl"]
+nfe-sha1-vendored = ["nfe-sha1", "openssl/vendored"]
 
 [dependencies]
 carimbar-types.workspace = true
