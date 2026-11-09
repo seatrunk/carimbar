@@ -47,8 +47,10 @@ cofre multiempresa (`carimbar-vault`) implementa envelope encryption com DEK por
 empresa, KEK fora do arquivo, rotação e auditoria encadeada. O modelo de DPS, o
 pedido de cancelamento e o cliente Sefin para emissão, consulta de NFS-e/DPS e
 eventos estão implementados (`carimbar-nfse`), com assinatura XMLDSig e validação
-XSD nos testes. Ainda não há homologação real: Emissor/journal, PDFs, CLI e MCP
-continuam stubs e **não há emissão funcional homologada de notas fiscais**.
+XSD nos testes. A fachada `Emissor` e o journal local com idempotência,
+reconciliação, promoção explícita de produção e kill switch estão implementados
+(`carimbar`). Ainda não há homologação real: PDFs, CLI e MCP continuam stubs e
+**não há emissão funcional homologada de notas fiscais**.
 
 O [plano de implementação do MVP](docs/plano-mvp.md) organiza as etapas,
 dependências e critérios de conclusão, acompanhados pela
