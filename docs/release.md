@@ -68,7 +68,7 @@ padrão não inclui OpenSSL.
 | `sdist-smoke` | `sdist` | instala o sdist (compila a partir da fonte) e roda o teste básico |
 | `dist-check` | `wheels`, `sdist` | `twine check` em todos os artefatos antes de publicar |
 | `pypi` | `dist-check`, `wheel-smoke`, `wheel-smoke-linux`, `wheel-pytest`, `sdist-smoke` | trusted publishing (OIDC), environment `pypi`, com `skip-existing: true` |
-| `crates-io` | `verificar` | `cargo publish --workspace --locked --dry-run`, depois `scripts/publish-crates.sh --dry-run` (plano) e `scripts/publish-crates.sh` com `CARGO_REGISTRY_TOKEN`, environment `crates-io` |
+| `crates-io` | `verificar` | dry-run e plano sem token; em seguida trusted publishing (OIDC, token de 30 min) em `carimbar` e `carimbar-cli`, environment `crates-io`. Token de API só para crate novo, à parte |
 
 O workflow tem `concurrency: release` (sem cancelar o que está em andamento):
 dois runs não publicam ao mesmo tempo.
@@ -128,19 +128,18 @@ Para revalidar antes de agir, rode `./scripts/release-status.sh`. O job
 
 Não reuse `v0.0.1`: `carimbar` já tem essa versão e o número é imutável.
 
-### Escopo do token (`publish-update` x `publish-new`)
+### Trusted publishing e crate novo
 
-A `0.0.2` mistura os dois casos:
+O job `crates-io` autentica por OIDC. Trusted publishing está configurado em
+`carimbar` e `carimbar-cli` (owner `seatrunk`, repo `carimbar`, workflow
+`release.yml`, environment `crates-io`). O job não lê
+`secrets.CARGO_REGISTRY_TOKEN`.
 
-- `carimbar` já existe em `0.0.1` → exige **publish-update**;
-- `carimbar-cli` é novo → exige **publish-new**.
-
-Um token só com publish-new falha com **403** já no primeiro crate da ordem
-(`carimbar`). Use um token novo com **publish-new + publish-update**, padrão
-`carimbar*`, validade de poucos dias, guardado no environment `crates-io`. A
-alternativa é cadastrar trusted publishing em `carimbar` antes (o que resolve o
-update), mantendo o token só para o `carimbar-cli` novo. Trusted publishing não
-cria crate novo.
+Trusted publishing não cria crate novo. A primeira versão de um nome que ainda
+não existe no crates.io precisa de um token de API com **publish-new**, por
+configuração à parte deste job. `carimbar` já existe em `0.0.1`: a versão
+seguinte é **publish-update** e o OIDC cobre. `carimbar-cli` só entra no OIDC
+depois que a primeira versão existir e o publisher estiver cadastrado nele.
 
 ## Recuperação de release parcial
 
@@ -171,8 +170,9 @@ de qualquer publicação.
 - em `429` ("too many"), espera o horário indicado pelo crates.io (+30 s) e tenta
   de novo; se a espera passar de `MAX_ESPERA_S` (1800 s), para com mensagem clara
   em vez de dormir sem limite;
-- em `401/403` (token sem publish-new/publish-update, expirado ou fora do padrão
-  `carimbar*`), **para na hora**: repetir não resolve;
+- em `401/403` (token OIDC expirado, trusted publishing ausente ou fora do
+  environment `crates-io`, ou token à parte sem publish-new num crate novo),
+  **para na hora**: repetir não resolve enquanto a causa continuar;
 - em `5xx`/erro de rede, faz backoff exponencial (até 600 s);
 - em "dependência ainda não visível no índice", espera 30 s e tenta de novo.
 
@@ -215,32 +215,41 @@ Com a tag em checkout:
 scripts/publish-crates.sh --dry-run
 ```
 
-## Token → OIDC (depois da 0.0.2)
+## Troca para OIDC
 
-O `CARGO_REGISTRY_TOKEN` desta publicação tem escopo **publish-new +
-publish-update** para `carimbar*` e validade curta. Depois da primeira
-publicação:
+Ordem, sem pular etapa:
 
-1. Em cada crate no crates.io (`carimbar` e `carimbar-cli`, Settings → Trusted
-   Publishing), adicionar o publisher GitHub: repo `seatrunk/carimbar`, workflow
-   `release.yml`, environment `crates-io`.
-2. Trocar o job `crates-io` para OIDC:
-   ```yaml
-   permissions:
-     id-token: write
-   steps:
-     - uses: actions/checkout@v5
-     - uses: rust-lang/crates-io-auth-action@v1
-       id: auth
-     - run: cargo publish --workspace --locked
-       env:
-         CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-   ```
-3. Revogar o token publish-new/publish-update no crates.io e apagar o secret do
-   environment.
+1. Configurar trusted publishing nos dois crates (`carimbar` e `carimbar-cli`,
+   Settings → Trusted Publishing): owner `seatrunk`, repo `carimbar`, workflow
+   `release.yml`, environment `crates-io`. O crate precisa já existir.
+2. Mergear o job `crates-io` que obtém o token de 30 min com
+   `rust-lang/crates-io-auth-action` v1.0.6, pinada por SHA
+   `3268eb413133e2960fa4ae0e963ca76380c54cd9`, depois do dry-run e do plano.
+3. Publicar uma vez via OIDC, numa tag nova cortada depois do merge.
+4. Só então revogar o token de API e apagar o secret do environment.
 
-A transição para OIDC é obrigatória antes da `0.0.3`, porque o token de escopo
-curto não deve continuar guardado.
+Uma tag já disparada (a `v0.0.2` em andamento) continua no workflow gravado
+nela, que ainda lê o secret. Não revogue o token enquanto essa recuperação
+puder precisar dele.
+
+O passo de auth fica imediatamente antes de `publish-crates.sh`. O dry-run
+(`cargo publish --workspace --locked --dry-run`) e o plano (`--dry-run` do
+script) não usam token. A aprovação do environment ocorre antes dos passos, então
+a espera do reviewer não consome os 30 min.
+
+`publish-crates.sh` pode dormir até `MAX_ESPERA_S` (1800 s) num 429. Essa espera
+passa da validade do token: a tentativa seguinte recebe 401/403 e o script para.
+Não há renovação no meio do script. Encurtar `MAX_ESPERA_S` para uma folga
+abaixo de 30 min, ou renovar o token, fica para um PR à parte; a lógica do
+script não muda aqui.
+
+As `permissions` do job substituem as do workflow: `contents: read` (sem ela o
+checkout falha) e `id-token: write`. Nenhum outro job ganha `id-token` nesta
+mudança. O job `pypi` já publicava por OIDC.
+
+O `workflow_dispatch` executa o YAML da ref escolhida. Tag anterior ao merge
+ainda usa o secret. Tag posterior usa OIDC e não tem fallback para o secret.
+Disparar a partir de `main` continua recusado: o environment só aceita tags `v*`.
 
 ## PyPI
 
