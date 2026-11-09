@@ -4,10 +4,10 @@
 
 O workspace está em `0.0.2` e tem **dois crates publicáveis**:
 
-| Crate | Conteúdo | Ação em 0.0.2 |
+| Crate | Conteúdo | Resultado em 0.0.2 |
 |---|---|---|
-| `carimbar` | biblioteca com os módulos `types`, `cert`, `endpoints`, `xml`, `dsig`, `transport`, `vault`, `danfe`, `nfse`, `nfe` e a fachada `Emissor`/`Journal` | **update**: `0.0.1` já existe |
-| `carimbar-cli` | binários `carimbar` e `carimbar-mcp` | **novo**: nunca publicado |
+| `carimbar` | biblioteca com os módulos `types`, `cert`, `endpoints`, `xml`, `dsig`, `transport`, `vault`, `danfe`, `nfse`, `nfe` e a fachada `Emissor`/`Journal` | **publicado** por token: update de `0.0.1` para `0.0.2` |
+| `carimbar-cli` | binários `carimbar` e `carimbar-mcp` | **publicado** por token: primeira versão `0.0.2` |
 
 `carimbar-py` tem `publish = false`: não vai ao crates.io, e sim ao PyPI
 (maturin) como pacote `carimbar`. O pacote Python `carimbar` ainda não existe no
@@ -68,7 +68,7 @@ padrão não inclui OpenSSL.
 | `sdist-smoke` | `sdist` | instala o sdist (compila a partir da fonte) e roda o teste básico |
 | `dist-check` | `wheels`, `sdist` | `twine check` em todos os artefatos antes de publicar |
 | `pypi` | `dist-check`, `wheel-smoke`, `wheel-smoke-linux`, `wheel-pytest`, `sdist-smoke` | trusted publishing (OIDC), environment `pypi`, com `skip-existing: true` |
-| `crates-io` | `verificar` | `cargo publish --workspace --locked --dry-run`, depois `scripts/publish-crates.sh --dry-run` (plano) e `scripts/publish-crates.sh` com `CARGO_REGISTRY_TOKEN`, environment `crates-io` |
+| `crates-io` | `verificar` | dry-run e plano sem token; em seguida trusted publishing (OIDC, token de 30 min). `carimbar` e `carimbar-cli` em 0.0.2 já são publish-update. Token de API só para um nome novo, à parte |
 
 O workflow tem `concurrency: release` (sem cancelar o que está em andamento):
 dois runs não publicam ao mesmo tempo.
@@ -106,41 +106,43 @@ publica um crate por vez e espera o índice entre um e outro.
 
 ### Estado observado em 2026-11-09
 
-| Situação | Crates |
+| Situação | Onde |
 |---|---|
-| `0.0.1` publicado, `0.0.2` ausente | `carimbar` |
-| nunca publicado | `carimbar-cli` |
+| `0.0.2` publicado por token em 09/11 19:14 BRT (run 42705514774, job `crates-io`) | `carimbar`, `carimbar-cli` |
 | PyPI | `carimbar` ausente |
+
+O run 42705514774 fechou em failure: os wheels `linux-aarch64` e
+`musllinux-x86_64` falharam (`yum` ausente nas imagens rust-cross) e o job
+`pypi` ficou skipped. Trusted publishing dos dois crates foi configurado em
+09/11 19:20 BRT (owner `seatrunk`, repo `carimbar`, workflow `release.yml`,
+environment `crates-io`). Daqui em diante os dois são publish-update e o OIDC
+cobre os dois.
 
 Para revalidar antes de agir, rode `./scripts/release-status.sh`. O job
 `verificar` executa o mesmo script e anexa a tabela ao resumo do run.
 
-## Primeira publicação (0.0.2)
+## Publicação 0.0.2
 
-1. Conferir que a `main` está verde no CI e que `version` em `[workspace.package]`
-   é a desejada (`0.0.2`). A versão do `pyproject` sai da mesma fonte.
-2. Criar e enviar a tag no commit da `main`:
-   `git tag -a v0.0.2 -m "carimbar 0.0.2" && git push origin v0.0.2`.
-3. Em Actions → Release, aprovar os deploys `crates-io` e `pypi` quando pedidos
-   (só depois de `verificar`, `dist-check` e dos smokes passarem).
-4. Conferir https://crates.io/crates/carimbar,
-   https://crates.io/crates/carimbar-cli e https://pypi.org/p/carimbar.
+`carimbar` 0.0.2 e `carimbar-cli` 0.0.2 já estão no crates.io, publicados por
+token no run 42705514774. O PyPI não publicou. Conferir
+https://crates.io/crates/carimbar, https://crates.io/crates/carimbar-cli e
+https://pypi.org/p/carimbar.
 
-Não reuse `v0.0.1`: `carimbar` já tem essa versão e o número é imutável.
+Não reuse `v0.0.1`: `carimbar` já tem essa versão e o número é imutável. Uma
+versão nova exige ok do Ricardo. A primeira publicação via OIDC é uma tag nova,
+depois do merge deste job.
 
-### Escopo do token (`publish-update` x `publish-new`)
+### Trusted publishing e crate novo
 
-A `0.0.2` mistura os dois casos:
+O job `crates-io` autentica por OIDC. Trusted publishing de `carimbar` e
+`carimbar-cli` foi configurado em 09/11 19:20 BRT (owner `seatrunk`, repo
+`carimbar`, workflow `release.yml`, environment `crates-io`). O job não lê
+`secrets.CARGO_REGISTRY_TOKEN`.
 
-- `carimbar` já existe em `0.0.1` → exige **publish-update**;
-- `carimbar-cli` é novo → exige **publish-new**.
-
-Um token só com publish-new falha com **403** já no primeiro crate da ordem
-(`carimbar`). Use um token novo com **publish-new + publish-update**, padrão
-`carimbar*`, validade de poucos dias, guardado no environment `crates-io`. A
-alternativa é cadastrar trusted publishing em `carimbar` antes (o que resolve o
-update), mantendo o token só para o `carimbar-cli` novo. Trusted publishing não
-cria crate novo.
+Trusted publishing não cria crate novo. A primeira versão de um nome que ainda
+não existe no crates.io precisa de um token de API com **publish-new**, por
+configuração à parte deste job. `carimbar` 0.0.2 e `carimbar-cli` 0.0.2 já
+existem: daqui em diante os dois são **publish-update** e o OIDC cobre os dois.
 
 ## Recuperação de release parcial
 
@@ -158,8 +160,10 @@ gh workflow run release.yml --ref v0.0.2 -f tag=v0.0.2
 ```
 
 No site, em Actions → Release → Run workflow, escolha a tag `v0.0.2` em "Use
-workflow from". Disparar de `main` é recusado pelo environment `crates-io` antes
-de qualquer publicação.
+workflow from". Disparar de `main` é recusado pelos environments `crates-io` e
+`pypi`: os dois só aceitam tags `v*`. Não dá para recuperar o PyPI disparando
+da `main`. O re-disparo da `v0.0.2` executa o workflow gravado na tag (ainda lê
+o secret) e o script pula `carimbar` e `carimbar-cli`, já presentes no índice.
 
 ### crates.io parou no meio
 
@@ -171,13 +175,15 @@ de qualquer publicação.
 - em `429` ("too many"), espera o horário indicado pelo crates.io (+30 s) e tenta
   de novo; se a espera passar de `MAX_ESPERA_S` (1800 s), para com mensagem clara
   em vez de dormir sem limite;
-- em `401/403` (token sem publish-new/publish-update, expirado ou fora do padrão
-  `carimbar*`), **para na hora**: repetir não resolve;
+- em `401/403` (token OIDC expirado, trusted publishing ausente ou fora do
+  environment `crates-io`, ou token à parte sem publish-new num crate novo),
+  **para na hora**: repetir não resolve enquanto a causa continuar;
 - em `5xx`/erro de rede, faz backoff exponencial (até 600 s);
 - em "dependência ainda não visível no índice", espera 30 s e tenta de novo.
 
-O job roda um `--dry-run` do plano antes de publicar, então o resumo do run
-mostra exatamente `carimbar` (update) e `carimbar-cli` (novo).
+O job roda um `--dry-run` do plano antes de publicar. Num re-disparo da
+`v0.0.2` o resumo marca `carimbar` e `carimbar-cli` como `pula`. Numa versão
+seguinte os dois são update.
 
 1. Corrija a causa, se houver.
 2. Rode o workflow de novo **com a ref da tag** e `tag` = a tag existente.
@@ -186,8 +192,10 @@ mostra exatamente `carimbar` (update) e `carimbar-cli` (novo).
 ### PyPI parou no meio
 
 O `pypa/gh-action-pypi-publish` usa `skip-existing: true`: arquivos já enviados
-são ignorados e os restantes são publicados. Rode o workflow de novo com a mesma
-tag. Não é preciso apagar nem renomear artefatos.
+são ignorados e os restantes são publicados. Rode o workflow de novo com a ref
+da tag, não a partir de `main`: o environment `pypi` só aceita tags `v*`, e um
+`workflow_dispatch` de `main` tem o deploy recusado. Não é preciso apagar nem
+renomear artefatos.
 
 ### Wheels ou smokes falharam
 
@@ -215,32 +223,46 @@ Com a tag em checkout:
 scripts/publish-crates.sh --dry-run
 ```
 
-## Token → OIDC (depois da 0.0.2)
+## Troca para OIDC
 
-O `CARGO_REGISTRY_TOKEN` desta publicação tem escopo **publish-new +
-publish-update** para `carimbar*` e validade curta. Depois da primeira
-publicação:
+1. **Feito** em 09/11 19:20 BRT. Trusted publishing configurado em `carimbar` e
+   `carimbar-cli`: owner `seatrunk`, repo `carimbar`, workflow `release.yml`,
+   environment `crates-io`.
+2. Mergear o job `crates-io` que obtém o token de 30 min com
+   `rust-lang/crates-io-auth-action` v1.0.6, pinada por SHA
+   `3268eb413133e2960fa4ae0e963ca76380c54cd9`, depois do dry-run e do plano.
+3. Publicar uma vez via OIDC, numa tag nova cortada depois do merge. Versão
+   nova exige ok do Ricardo. Os dois crates são publish-update e o OIDC cobre
+   os dois.
+4. Só então revogar o token de API e apagar o secret do environment. O token
+   só sai depois dessa publicação ter dado certo.
 
-1. Em cada crate no crates.io (`carimbar` e `carimbar-cli`, Settings → Trusted
-   Publishing), adicionar o publisher GitHub: repo `seatrunk/carimbar`, workflow
-   `release.yml`, environment `crates-io`.
-2. Trocar o job `crates-io` para OIDC:
-   ```yaml
-   permissions:
-     id-token: write
-   steps:
-     - uses: actions/checkout@v5
-     - uses: rust-lang/crates-io-auth-action@v1
-       id: auth
-     - run: cargo publish --workspace --locked
-       env:
-         CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-   ```
-3. Revogar o token publish-new/publish-update no crates.io e apagar o secret do
-   environment.
+O run 42705514774 já terminou, em failure: os wheels `linux-aarch64` e
+`musllinux-x86_64` falharam (`yum` ausente nas imagens rust-cross) e o job
+`pypi` ficou skipped. O PyPI `carimbar` segue ausente. Um re-disparo da tag
+`v0.0.2` executa o workflow gravado nela, que ainda lê o secret, e o script
+pula os dois crates.
 
-A transição para OIDC é obrigatória antes da `0.0.3`, porque o token de escopo
-curto não deve continuar guardado.
+O passo de auth fica imediatamente antes de `publish-crates.sh`. O dry-run
+(`cargo publish --workspace --locked --dry-run`) e o plano (`--dry-run` do
+script) não usam token. A aprovação do environment ocorre antes dos passos, então
+a espera do reviewer não consome os 30 min.
+
+`publish-crates.sh` pode dormir até `MAX_ESPERA_S` (1800 s) num 429. Essa espera
+passa da validade do token: a tentativa seguinte recebe 401/403 e o script para.
+Não há renovação no meio do script. Encurtar `MAX_ESPERA_S` para uma folga
+abaixo de 30 min, ou renovar o token, fica para um PR à parte; a lógica do
+script não muda aqui.
+
+As `permissions` do job substituem as do workflow: `contents: read` (sem ela o
+checkout falha) e `id-token: write`. Nenhum outro job ganha `id-token` nesta
+mudança. O job `pypi` já publicava por OIDC.
+
+O `workflow_dispatch` executa o YAML da ref escolhida. A `v0.0.2` usa o
+workflow da tag (secret) e pula os dois crates. Tag posterior ao merge usa
+OIDC e não tem fallback para o secret. Disparar a partir de `main` é recusado
+pelos environments `crates-io` e `pypi`: os dois só aceitam tags `v*`. Não dá
+para recuperar o PyPI disparando da `main`.
 
 ## PyPI
 
@@ -254,8 +276,8 @@ Para fechar a #6, registre no comentário da issue:
 - URL do run e SHA do commit da tag;
 - saída de `scripts/release-status.sh` mostrando `carimbar` e `carimbar-cli` na
   versão planejada, e o pacote Python no PyPI;
-- a tabela do plano (`carimbar` = update, `carimbar-cli` = novo) anexada pelo
-  `--dry-run` do `publish-crates.sh`;
+- a tabela do plano anexada pelo `--dry-run` do `publish-crates.sh` (na
+  `v0.0.2` os dois crates são `pula`; numa versão nova os dois são update);
 - lista dos wheels e do sdist gerados (nomes dos artefatos do run);
 - resultado de `twine check`, dos smokes de instalação e do `pytest`;
 - confirmação de que os environments exigiram aprovação.
