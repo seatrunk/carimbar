@@ -19,8 +19,9 @@ use crate::journal::{EstadoOperacao, Journal, Operacao, TipoOperacao, hash_conte
 use carimbar_cert::CertificadoA1;
 use carimbar_dsig::assinar;
 use carimbar_nfse::{
-    ChaveNfse, ClienteSefin, Dps, ErroFiscal, EventoCancelamento, Executor, IdDps, Rejeicao,
-    ResultadoEmissao, ResultadoEvento,
+    CacheParametros, ChaveNfse, ClienteAdn, ClienteParametros, ClienteSefin, Dps, ErroFiscal,
+    EventoCancelamento, Executor, IdDps, LoteDistribuicao, ParametrosConvenio, Rejeicao,
+    ResultadoEmissao, ResultadoEvento, StatusDistribuicao,
 };
 use carimbar_types::{Ambiente, Cnpj, ConfirmacaoProducao, TpAmb};
 use carimbar_vault::{Cofre, MetadadosCertificado};
@@ -126,6 +127,19 @@ pub enum ResultadoNfse {
     },
 }
 
+/// Resultado de uma rodada de sincronização do ADN.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResultadoSincronizacao {
+    /// Cursor no início da rodada.
+    pub inicio_nsu: u64,
+    /// Maior NSU persistido ao final.
+    pub ultimo_nsu: u64,
+    /// Documentos novos inseridos.
+    pub documentos_novos: usize,
+    /// Páginas consultadas.
+    pub paginas: usize,
+}
+
 /// Fachada de emissão de NFS-e para uma empresa.
 ///
 /// O `Emissor` possui o cofre, o journal e uma referência ao executor de
@@ -138,6 +152,7 @@ pub struct Emissor<'a> {
     executor: &'a dyn Executor,
     kill_switch: Box<dyn KillSwitch>,
     certificado_id: Option<String>,
+    cache_parametros: CacheParametros,
 }
 
 impl std::fmt::Debug for Emissor<'_> {
@@ -184,6 +199,7 @@ impl<'a> Emissor<'a> {
             executor,
             kill_switch,
             certificado_id,
+            cache_parametros: CacheParametros::padrao(),
         })
     }
 
@@ -555,6 +571,98 @@ impl<'a> Emissor<'a> {
         self.confirmar_cancelamento(preparada.id())
     }
 
+    /// Consulta o convênio do município, com cache e atualização explícita.
+    pub fn consultar_convenio(
+        &self,
+        codigo_municipio: &str,
+        forcar_atualizacao: bool,
+    ) -> Result<ParametrosConvenio, ErroEmissor> {
+        let cliente = ClienteParametros::new(
+            self.ambiente().tp_amb(),
+            self.executor,
+            Some(&self.cache_parametros),
+        );
+        Ok(cliente.consultar_convenio(codigo_municipio, forcar_atualizacao)?)
+    }
+
+    /// Consulta a alíquota de um serviço, com cache e atualização explícita.
+    pub fn consultar_aliquota(
+        &self,
+        codigo_municipio: &str,
+        codigo_servico: &str,
+        competencia: &str,
+        forcar_atualizacao: bool,
+    ) -> Result<carimbar_nfse::ConsultaAliquotas, ErroEmissor> {
+        let cliente = ClienteParametros::new(
+            self.ambiente().tp_amb(),
+            self.executor,
+            Some(&self.cache_parametros),
+        );
+        Ok(cliente.consultar_aliquota(
+            codigo_municipio,
+            codigo_servico,
+            competencia,
+            forcar_atualizacao,
+        )?)
+    }
+
+    /// Limpa o cache de parâmetros municipais.
+    pub fn limpar_cache_parametros(&self) {
+        self.cache_parametros.limpar();
+    }
+
+    /// Sincroniza documentos do ADN por NSU.
+    ///
+    /// Cada página é persistida junto com o novo cursor. Uma falha de
+    /// transporte ou de escrita deixa o cursor anterior, e a próxima execução
+    /// retoma do último NSU persistido. `limite_paginas` evita laço infinito.
+    pub fn sincronizar_adn(
+        &mut self,
+        limite_paginas: u32,
+    ) -> Result<ResultadoSincronizacao, ErroEmissor> {
+        let empresa = self.empresa;
+        let ambiente = self.ambiente().tp_amb();
+        let inicio = self.journal.adn_cursor(&empresa, ambiente)?;
+        let inicio_nsu = u64::try_from(inicio)
+            .map_err(|_| ErroEmissor::Journal("cursor negativo".to_owned()))?;
+        let cliente = ClienteAdn::new(ambiente, self.executor);
+        let mut nsu = inicio_nsu;
+        let mut ultimo_nsu = inicio_nsu;
+        let mut documentos_novos = 0_usize;
+        let mut paginas = 0_usize;
+        for _ in 0..limite_paginas {
+            let lote = cliente.consultar(nsu, None, None)?;
+            validar_lote(&lote)?;
+            if lote.documentos.is_empty() {
+                break;
+            }
+            let proximo = lote.ultimo_nsu.max(nsu);
+            documentos_novos +=
+                self.journal
+                    .adn_persistir_lote(&empresa, ambiente, &lote.documentos, proximo)?;
+            paginas += 1;
+            ultimo_nsu = proximo;
+            if proximo <= nsu {
+                break;
+            }
+            nsu = proximo;
+        }
+        Ok(ResultadoSincronizacao {
+            inicio_nsu,
+            ultimo_nsu,
+            documentos_novos,
+            paginas,
+        })
+    }
+
+    /// Documentos do ADN persistidos para a empresa e o ambiente.
+    pub fn documentos_adn(
+        &self,
+    ) -> Result<Vec<crate::journal::DocumentoAdnArmazenado>, ErroEmissor> {
+        self.journal
+            .adn_documentos(&self.empresa, self.ambiente().tp_amb())
+    }
+
     fn exigir_producao_permitida(&self) -> Result<(), ErroEmissor> {
         if self.ambiente().eh_producao() && !self.kill_switch.producao_permitida() {
             return Err(ErroEmissor::ProducaoBloqueada);
@@ -627,6 +735,25 @@ impl<'a> Emissor<'a> {
                 .unwrap_or_else(|| "rejeição sem detalhe persistido".to_owned()),
         }
     }
+}
+
+fn validar_lote(lote: &LoteDistribuicao) -> Result<(), ErroEmissor> {
+    if lote.status == StatusDistribuicao::Rejeicao {
+        let detalhe = lote
+            .erros
+            .iter()
+            .map(|erro| format!("{}: {}", erro.codigo, erro.descricao))
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(ErroEmissor::Nfse(carimbar_nfse::ErroNfse::Distribuicao(
+            if detalhe.is_empty() {
+                "consulta do ADN rejeitada".to_owned()
+            } else {
+                detalhe
+            },
+        )));
+    }
+    Ok(())
 }
 
 fn formatar_rejeicao(rejeicao: &Rejeicao) -> String {
