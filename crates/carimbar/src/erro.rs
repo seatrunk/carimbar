@@ -1,12 +1,12 @@
 //! Erros da fachada e do journal.
 
-use carimbar_danfe::ErroDanfe;
-use carimbar_dsig::ErroDsig;
-use carimbar_nfe::ErroNfe;
-use carimbar_nfse::ErroNfse;
-use carimbar_types::Cnpj;
-use carimbar_vault::ErroCofre;
-use carimbar_xml::ErroXml;
+use crate::danfe::ErroDanfe;
+use crate::dsig::ErroDsig;
+use crate::nfe::ErroNfe;
+use crate::nfse::ErroNfse;
+use crate::types::Cnpj;
+use crate::vault::ErroCofre;
+use crate::xml::ErroXml;
 use thiserror::Error;
 
 /// Falha ao preparar, confirmar ou reconciliar uma operação fiscal.

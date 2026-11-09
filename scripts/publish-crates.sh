@@ -1,14 +1,29 @@
 #!/usr/bin/env bash
 # Publica no crates.io os crates do workspace que ainda não existem na versão atual,
 # em ordem topológica, um por vez. Idempotente: pula o que já está no índice.
-# Respeita o limite de crate novo do crates.io: no 429, dorme até o horário que a
-# resposta indica (+30 s) e tenta de novo o mesmo crate.
+# Respeita os limites do crates.io (https://crates.io/docs/rate-limits):
+#   - crate novo: rajada de 5 por conta, depois 1 a cada 10 min;
+#   - versão nova de crate existente: rajada de 30, depois 1 por minuto.
+# No 429, dorme até o horário que a resposta indica (+30 s) e tenta de novo o
+# mesmo crate. Em 5xx/erro de rede, backoff exponencial. Em 401/403 (token sem o
+# escopo publish-new/publish-update, expirado ou fora do padrão carimbar*), para
+# na hora: repetir não resolve.
+#
+# Estado atual: dois crates publicáveis.
+#   carimbar     0.0.2 -> update (0.0.1 já existe)
+#   carimbar-cli 0.0.2 -> novo
+#
 # Uso: CARGO_REGISTRY_TOKEN=... scripts/publish-crates.sh [--dry-run]
+# Variáveis: MAX_TENTATIVAS (20), MAX_ESPERA_S (1800), INTERVALO_NOVO_S (0: só
+# reage ao 429; >0 espaça crates novos depois do 5º, para publicação manual).
 set -euo pipefail
 
 DRY_RUN=0
 [[ "${1:-}" == "--dry-run" ]] && DRY_RUN=1
 MAX_TENTATIVAS="${MAX_TENTATIVAS:-20}"
+MAX_ESPERA_S="${MAX_ESPERA_S:-1800}"
+INTERVALO_NOVO_S="${INTERVALO_NOVO_S:-0}"
+RESUMO="${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 # Ordem topológica dos crates publicáveis (publish != false), calculada do cargo metadata.
 mapfile -t ORDEM < <(cargo metadata --no-deps --format-version 1 --locked | python3 -c '
@@ -47,6 +62,11 @@ ja_publicado() {
   python3 -c 'import json,sys; v=sys.argv[1]; sys.exit(0 if any(json.loads(l)["vers"]==v for l in sys.stdin if l.strip()) else 1)' "$versao" <<<"$corpo"
 }
 
+# 0 = o crate já existe no crates.io (qualquer versão): publicar é publish-update.
+crate_existe() {
+  curl -fsS -o /dev/null -H 'Cache-Control: no-cache' "https://index.crates.io/$(caminho_indice "$1")" 2>/dev/null
+}
+
 # A publicação anterior pode demorar a aparecer no índice; sem isso o próximo
 # crate falha ao resolver a dependência recém-publicada.
 esperar_indice() {
@@ -58,16 +78,47 @@ esperar_indice() {
   return 1
 }
 
+# Plano antes de publicar: o que pula, o que é crate novo e o que é versão nova.
+declare -A TIPO=()
+novos=0; updates=0
+{
+  echo "| Crate | Versão | Ação |"
+  echo "|---|---|---|"
+} >>"$RESUMO"
 for linha in "${ORDEM[@]}"; do
   read -r nome versao <<<"$linha"
   if ja_publicado "$nome" "$versao"; then
+    TIPO[$nome]=pula
+  elif crate_existe "$nome"; then
+    TIPO[$nome]=update; updates=$((updates + 1))
+  else
+    TIPO[$nome]=novo; novos=$((novos + 1))
+  fi
+  echo "plano: $nome $versao -> ${TIPO[$nome]}"
+  echo "| $nome | $versao | ${TIPO[$nome]} |" >>"$RESUMO"
+done
+extra=$(( novos > 5 ? (novos - 5) * 10 : 0 ))
+echo "crates novos: $novos (publish-new); versões novas: $updates (publish-update); espera estimada pelo limite: ~${extra} min"
+if (( updates > 0 )); then
+  echo "::notice::há $updates crate(s) existentes: o token precisa do escopo publish-update (ou use trusted publishing)"
+fi
+
+publicados_novos=0
+for linha in "${ORDEM[@]}"; do
+  read -r nome versao <<<"$linha"
+  if [[ "${TIPO[$nome]}" == pula ]] || ja_publicado "$nome" "$versao"; then
     echo "pula $nome $versao: já está no crates.io"
     continue
   fi
   if (( DRY_RUN )); then
-    echo "publicaria $nome $versao"
+    echo "publicaria $nome $versao (${TIPO[$nome]})"
     continue
   fi
+  if [[ "${TIPO[$nome]}" == novo ]] && (( INTERVALO_NOVO_S > 0 && publicados_novos >= 5 )); then
+    echo "espaçamento de crate novo: ${INTERVALO_NOVO_S}s antes de $nome"
+    sleep "$INTERVALO_NOVO_S"
+  fi
+  backoff=30
   for ((t = 1; t <= MAX_TENTATIVAS; t++)); do
     echo "publica $nome $versao (tentativa $t)"
     set +e
@@ -76,6 +127,7 @@ for linha in "${ORDEM[@]}"; do
     set -e
     echo "$saida"
     if (( rc == 0 )); then
+      [[ "${TIPO[$nome]}" == novo ]] && publicados_novos=$((publicados_novos + 1))
       esperar_indice "$nome" "$versao" \
         || echo "::warning::$nome $versao publicado, mas o índice ainda não confirmou"
       break
@@ -84,13 +136,27 @@ for linha in "${ORDEM[@]}"; do
       echo "pula $nome $versao: já foi publicado"
       break
     fi
-    if grep -Eq '429' <<<"$saida"; then
+    if grep -Eiq 'status 40[13]|required permissions|not authorized|invalid authentication|token.*expired|expired.*token' <<<"$saida"; then
+      echo "::error::crates.io recusou o token ao publicar $nome (${TIPO[$nome]}). Crate novo exige publish-new; crate existente exige publish-update; o padrão de crates deve cobrir carimbar*. Repetir não resolve."
+      exit "$rc"
+    fi
+    if grep -Eiq 'status 429|too many' <<<"$saida"; then
       quando=$(grep -oE 'try again after [A-Za-z]{3}, [0-9]{2} [A-Za-z]{3} [0-9]{4} [0-9:]{8} GMT' <<<"$saida" | sed 's/try again after //' | head -1)
       alvo=$(date -d "${quando:-now + 10 minutes}" +%s)
       espera=$(( alvo - $(date +%s) + 30 ))
       (( espera < 30 )) && espera=30
-      echo "limite de crate novo; espera ${espera}s (até ${quando:-+10 min})"
+      if (( espera > MAX_ESPERA_S )); then
+        echo "::error::crates.io pede espera de ${espera}s (até $quando), acima de MAX_ESPERA_S=${MAX_ESPERA_S}; rode de novo depois desse horário"
+        exit 1
+      fi
+      echo "limite do crates.io (${TIPO[$nome]}); espera ${espera}s (até ${quando:-+10 min})"
       sleep "$espera"
+      continue
+    fi
+    if grep -Eiq 'status 5[0-9]{2}|timed out|connection (reset|refused)|could not resolve host|SSL' <<<"$saida"; then
+      echo "erro transitório; backoff ${backoff}s"
+      sleep "$backoff"
+      backoff=$(( backoff * 2 > 600 ? 600 : backoff * 2 ))
       continue
     fi
     if grep -Eq 'failed to select a version|no matching package named' <<<"$saida"; then

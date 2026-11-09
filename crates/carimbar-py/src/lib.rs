@@ -5,12 +5,12 @@
 
 #[cfg(feature = "nfe-sha1")]
 use carimbar::ResultadoNfe;
+use carimbar::nfe::ErroNfe as ErroNfeModelo;
+use carimbar::nfse::{ChaveNfse, ErroNfse, EventoCancelamento, Executor, MotivoCancelamento};
+use carimbar::transport::{ClienteMtls, ErroEnvio, ErroTransporte, Opcoes, Requisicao, Resposta};
+use carimbar::types::{ChaveAcesso, Cnpj, Dinheiro, TpAmb};
+use carimbar::vault::{ChaveMestra, Cofre};
 use carimbar::{Emissor, ErroEmissor, Journal, ResultadoNfse};
-use carimbar_nfe::ErroNfe as ErroNfeModelo;
-use carimbar_nfse::{ChaveNfse, ErroNfse, EventoCancelamento, Executor, MotivoCancelamento};
-use carimbar_transport::{ClienteMtls, ErroEnvio, ErroTransporte, Opcoes, Requisicao, Resposta};
-use carimbar_types::{ChaveAcesso, Cnpj, Dinheiro, TpAmb};
-use carimbar_vault::{ChaveMestra, Cofre};
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
@@ -93,7 +93,7 @@ fn cnpj(texto: &str) -> PyResult<Cnpj> {
     Cnpj::parse(texto).map_err(|erro| ErroValidacao::new_err(erro.to_string()))
 }
 
-fn abrir_cofre(caminho: &Path, chave: [u8; 32]) -> Result<Cofre, carimbar_vault::ErroCofre> {
+fn abrir_cofre(caminho: &Path, chave: [u8; 32]) -> Result<Cofre, carimbar::vault::ErroCofre> {
     if caminho.exists() {
         Cofre::abrir(caminho, Box::new(ChaveMestra::de_bytes(chave)))
     } else {
@@ -101,7 +101,7 @@ fn abrir_cofre(caminho: &Path, chave: [u8; 32]) -> Result<Cofre, carimbar_vault:
     }
 }
 
-fn meta_dict(py: Python<'_>, meta: &carimbar_vault::MetadadosCertificado) -> PyResult<Py<PyDict>> {
+fn meta_dict(py: Python<'_>, meta: &carimbar::vault::MetadadosCertificado) -> PyResult<Py<PyDict>> {
     let dict = PyDict::new(py);
     dict.set_item("empresa", meta.empresa.as_str())?;
     dict.set_item("id", &meta.id)?;
@@ -347,7 +347,7 @@ impl EmissorPy {
             let executor = NoopExecutor;
             let mut emissor = Emissor::novo(cofre, journal, config.empresa, &executor)?;
             emissor.promover_producao(
-                carimbar_types::ConfirmacaoProducao::new(confirmar),
+                carimbar::types::ConfirmacaoProducao::new(confirmar),
                 &certificado,
             )
         })
@@ -463,10 +463,10 @@ impl EmissorPy {
                     let evento = EventoCancelamento {
                         ambiente,
                         chave: ChaveNfse::parse(&chave, ambiente).map_err(ErroEmissor::Nfse)?,
-                        autor: carimbar_nfse::InscricaoFederal::parse(config.empresa.as_str())
+                        autor: carimbar::nfse::InscricaoFederal::parse(config.empresa.as_str())
                             .map_err(ErroEmissor::Nfse)?,
                         ver_aplic: format!("carimbar-py-{}", env!("CARGO_PKG_VERSION")),
-                        dh_evento: carimbar_nfse::DataHoraFiscal::parse(&agora())
+                        dh_evento: carimbar::nfse::DataHoraFiscal::parse(&agora())
                             .map_err(ErroEmissor::Nfse)?,
                         motivo,
                         descricao,

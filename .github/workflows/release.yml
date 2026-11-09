@@ -17,6 +17,12 @@ on:
 permissions:
   contents: read
 
+# Nunca dois releases publicando ao mesmo tempo (ex.: um run antigo aprovado
+# por engano junto com o novo). Não cancela o que está em andamento.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 env:
   CARIMBAR_PRODUCAO: "0"
 
@@ -60,6 +66,9 @@ jobs:
     needs: [verificar]
     name: wheel ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    # O default é 360 min; runner macOS sem capacidade ou perdido não pode
+    # segurar o release por horas (run 41872899690 ficou 46 min até cair).
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -254,20 +263,23 @@ jobs:
           skip-existing: true
 
   crates-io:
-    # Primeira publicação por token (escopo publish-new, validade curta) guardado no
-    # environment crates-io, que exige aprovação do seatrunk e só aceita tags v*.
-    # Depois: trusted publishing (rust-lang/crates-io-auth-action). Ver docs/release.md.
+    # Primeira publicação por token (escopo publish-new + publish-update, validade
+    # curta) guardado no environment crates-io, que exige aprovação do seatrunk e
+    # só aceita tags v*. Depois: trusted publishing (rust-lang/crates-io-auth-action).
+    # Ver docs/release.md.
     needs: [verificar]
     runs-on: ubuntu-latest
     environment: crates-io
-    # Com o limite de crate novo (~1 a cada 10 min depois da rajada), 13 crates
-    # novos levam ~80 min.
-    timeout-minutes: 180
+    # Só dois crates: `carimbar` (update, já existe) e `carimbar-cli` (novo).
+    # O limite de crate novo (1 a cada 10 min) nem é atingido; a folga cobre a
+    # espera de índice e eventuais 429.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag || github.ref }}
-      # O script de publicação vem do commit do workflow (pode ser mais novo que a tag).
+      # Checks out o mesmo ref do workflow: no re-disparo com `--ref vX`, o
+      # script vem da tag (não de `main`).
       - uses: actions/checkout@v5
         with:
           path: .release-tools
@@ -275,6 +287,8 @@ jobs:
       - run: mv .release-tools "$RUNNER_TEMP/release-tools"
       - name: Dry-run do workspace
         run: cargo publish --workspace --locked --dry-run
+      - name: Plano (não publica)
+        run: '"$RUNNER_TEMP/release-tools/scripts/publish-crates.sh" --dry-run'
       - name: Publica o que falta, em ordem topológica
         # Idempotente: pula crate já publicado e espera no 429. Ver scripts/publish-crates.sh.
         # O token só existe neste passo, via env; nunca é ecoado.

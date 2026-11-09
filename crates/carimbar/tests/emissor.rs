@@ -1,17 +1,17 @@
 //! Testes de integração da fachada com PKI sintética e transporte simulado.
 //! Nada acessa SEFAZ, Sefin ou ADN.
 
-use carimbar::{
-    Emissor, EstadoOperacao, Journal, KillSwitch, KillSwitchAmbiente, KillSwitchFixo, ResultadoNfse,
-};
-use carimbar_nfse::{
+use carimbar::nfse::{
     ChaveNfse, CodigoMunicipio, DataFiscal, DataHoraFiscal, Dps, Executor, InscricaoFederal,
     LocalPrestacao, NumeroDps, Prestador, RegimeTributario, SerieDps, Servico, TipoEmitente,
     TipoRetencaoIssqn, TotalTributos, TribIssqn, TributoMunicipal, Valores,
 };
-use carimbar_transport::{ErroEnvio, ErroTransporte, Requisicao, Resposta};
-use carimbar_types::{Cnpj, ConfirmacaoProducao, Dinheiro, TpAmb};
-use carimbar_vault::{ChaveMestra, Cofre};
+use carimbar::transport::{ErroEnvio, ErroTransporte, Requisicao, Resposta};
+use carimbar::types::{Cnpj, ConfirmacaoProducao, Dinheiro, TpAmb};
+use carimbar::vault::{ChaveMestra, Cofre};
+use carimbar::{
+    Emissor, EstadoOperacao, Journal, KillSwitch, KillSwitchAmbiente, KillSwitchFixo, ResultadoNfse,
+};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -198,7 +198,7 @@ fn corpo_autorizacao_com(xml: &str, ambiente: TpAmb) -> Vec<u8> {
     serde_json::json!({
         "idDps": id.as_str(),
         "chaveAcesso": chave_sintetica(ambiente).as_str(),
-        "nfseXmlGZipB64": carimbar_nfse::comprimir_b64(xml).expect("comprime"),
+        "nfseXmlGZipB64": carimbar::nfse::comprimir_b64(xml).expect("comprime"),
         "dataHoraProcessamento": "2026-11-08T10:00:01-03:00",
         "alertas": []
     })
@@ -211,7 +211,7 @@ fn corpo_autorizacao(ambiente: TpAmb) -> Vec<u8> {
     serde_json::json!({
         "idDps": id.as_str(),
         "chaveAcesso": chave_sintetica(ambiente).as_str(),
-        "nfseXmlGZipB64": carimbar_nfse::comprimir_b64("<NFSe/>").expect("comprime"),
+        "nfseXmlGZipB64": carimbar::nfse::comprimir_b64("<NFSe/>").expect("comprime"),
         "dataHoraProcessamento": "2026-11-08T10:00:01-03:00",
         "alertas": []
     })
@@ -232,7 +232,7 @@ fn corpo_dps(ambiente: TpAmb) -> Vec<u8> {
 fn corpo_nfse(ambiente: TpAmb) -> Vec<u8> {
     serde_json::json!({
         "chaveAcesso": chave_sintetica(ambiente).as_str(),
-        "nfseXmlGZipB64": carimbar_nfse::comprimir_b64("<NFSe/>").expect("comprime")
+        "nfseXmlGZipB64": carimbar::nfse::comprimir_b64("<NFSe/>").expect("comprime")
     })
     .to_string()
     .into_bytes()

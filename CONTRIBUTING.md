@@ -16,15 +16,15 @@ O CI (`.github/workflows/ci.yml`) roda os mesmos passos em todo PR.
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo test -p carimbar-xml --features xsd
-# carimbar-cert gera A1 sintético com o CLI openssl (presente no ubuntu-latest e no macOS).
-cargo test -p carimbar-cert
-# carimbar-dsig verifica assinaturas com o CLI xmlsec1 (apt install xmlsec1).
-cargo test -p carimbar-dsig
+cargo test -p carimbar --features xsd
+# os testes de cert geram A1 sintético com o CLI openssl (presente no ubuntu-latest e no macOS).
+cargo test -p carimbar --test cert_a1
+# os testes de dsig conferem assinaturas com o CLI xmlsec1 (apt install xmlsec1).
+cargo test -p carimbar --test dsig_assinatura
 # Perfil legado: requer libssl-dev e pkg-config no Ubuntu, além de xmlsec1.
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --all-features --locked
-cargo +1.89 check -p carimbar-dsig --features nfe-sha1 --locked
+cargo +1.89 check -p carimbar --no-default-features --features nfe-sha1 --locked
 cargo deny check
 (cd crates/carimbar-py && maturin build)  # feature nfe-sha1 com OpenSSL vendored
 ./scripts/check-no-certs.sh
@@ -36,12 +36,12 @@ docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7
 Toolchain fixado em `rust-toolchain.toml`; MSRV declarado em `Cargo.toml` (`rust-version`).
 `unsafe_code` é `forbid` em todos os crates, exceto `carimbar-py` (macros do PyO3).
 
-O runtime padrão continua sem OpenSSL. A feature opcional
-`carimbar-dsig/nfe-sha1` habilita `carimbar-cert/nfe-sha1` e o backend OpenSSL
-exclusivamente para assinatura RSA-SHA1 da NF-e. A exceção está registrada em
-`deny.toml`; o job `nfe-sha1` testa a feature e confere que o grafo padrão não
-inclui `openssl`/`openssl-sys`. O CLI `openssl` usado para gerar certificados
-sintéticos nos testes é uma dependência de teste distinta dessa feature.
+O runtime padrão continua sem OpenSSL. A feature opcional `nfe-sha1` de
+`carimbar` habilita o backend OpenSSL (no módulo `cert`) exclusivamente para
+assinatura RSA-SHA1 da NF-e. A exceção está registrada em `deny.toml`; o job
+`nfe-sha1` testa a feature e confere que o grafo padrão não inclui
+`openssl`/`openssl-sys`. O CLI `openssl` usado para gerar certificados sintéticos
+nos testes é uma dependência de teste distinta dessa feature.
 
 ## Schemas
 

@@ -1,7 +1,7 @@
 # schemas
 
 XSD oficiais vendorizados sem alteração. Cada pacote tem `SHA256SUMS`; o teste
-`carimbar-xml/tests/schemas_sha256.rs` falha se algum arquivo mudar, sumir ou aparecer.
+`crates/carimbar/tests/xml_schemas_sha256.rs` falha se algum arquivo mudar, sumir ou aparecer.
 
 | Pasta | Origem | SHA-256 do zip | Baixado em |
 |---|---|---|---|

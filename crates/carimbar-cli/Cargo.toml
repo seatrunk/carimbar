@@ -1,6 +1,6 @@
 [package]
 name = "carimbar-cli"
-description = "CLI do carimbar: emissão de NF-e e NFS-e e administração do cofre"
+description = "CLI e servidor MCP do carimbar: emissão de NF-e e NFS-e e administração do cofre"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,27 +13,38 @@ keywords.workspace = true
 categories = ["finance", "command-line-utilities"]
 include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
+[lib]
+name = "carimbar_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "carimbar"
 path = "src/main.rs"
 
+[[bin]]
+name = "carimbar-mcp"
+path = "src/bin/carimbar-mcp.rs"
+required-features = ["mcp"]
+
 [features]
-default = []
+default = ["mcp"]
+# Servidor MCP stdio (`carimbar-mcp`). As dependências ficam atrás desta feature.
+mcp = ["dep:base64", "dep:getrandom", "dep:rmcp", "dep:serde", "dep:tokio"]
 nfe-sha1 = ["carimbar/nfe-sha1"]
 
 [dependencies]
 carimbar.workspace = true
-carimbar-cert.workspace = true
-carimbar-nfse.workspace = true
-carimbar-transport.workspace = true
-carimbar-types.workspace = true
-carimbar-vault.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 serde_json = "1"
 time = { version = "0.3", features = ["formatting", "macros"] }
+base64 = { version = "0.22", optional = true }
+getrandom = { version = "0.4", optional = true }
+rmcp = { version = "3.9", features = ["transport-io"], optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"], optional = true }
 
 [dev-dependencies]
-carimbar-nfse.workspace = true
+serde_json = "1"
 
 [lints]
 workspace = true

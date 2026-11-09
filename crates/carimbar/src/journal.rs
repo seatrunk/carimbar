@@ -11,8 +11,8 @@
 //! enviem a mesma operação.
 
 use crate::erro::ErroEmissor;
-use carimbar_nfse::DocumentoDistribuido;
-use carimbar_types::{Cnpj, TpAmb};
+use crate::nfse::DocumentoDistribuido;
+use crate::types::{Cnpj, TpAmb};
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 use std::path::Path;

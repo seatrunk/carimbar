@@ -4,8 +4,8 @@
 //! primeira resposta cujo `url_contem` casa (ou sem filtro). O recurso é
 //! aceito apenas em builds de depuração; em release, o CLI recusa `--replay`.
 
-use carimbar_nfse::Executor;
-use carimbar_transport::{ErroEnvio, ErroTransporte, Requisicao, Resposta};
+use carimbar::nfse::Executor;
+use carimbar::transport::{ErroEnvio, ErroTransporte, Requisicao, Resposta};
 use serde_json::Value;
 use std::collections::VecDeque;
 use std::path::Path;

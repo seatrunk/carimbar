@@ -1,6 +1,6 @@
 //! Testes de processo da CLI com certificado sintético e transporte replay.
 
-use carimbar_nfse::comprimir_b64;
+use carimbar::nfse::comprimir_b64;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -295,7 +295,7 @@ fn rejeicao_fiscal_tem_codigo_tres() {
 fn fluxo_nfe_simulado_pela_cli() {
     let dir = diretorio("nfe");
     preparar_empresa(&dir);
-    let chave = carimbar_types::ChaveAcesso::com_dv("3526110000000100013655001000000000112345678")
+    let chave = carimbar::types::ChaveAcesso::com_dv("3526110000000100013655001000000000112345678")
         .expect("chave")
         .as_str()
         .to_owned();

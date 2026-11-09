@@ -14,22 +14,22 @@
 //! reenviado às cegas: [`Emissor::reconciliar_nfse`] consulta o estado na Sefin
 //! antes de qualquer nova tentativa.
 
+use crate::cert::CertificadoA1;
+use crate::dsig::{assinar, verificar};
+#[cfg(feature = "nfe-sha1")]
+use crate::endpoints::Uf;
 use crate::erro::ErroEmissor;
 use crate::journal::{EstadoOperacao, Journal, Operacao, TipoOperacao, hash_conteudo};
-use carimbar_cert::CertificadoA1;
-use carimbar_dsig::{assinar, verificar};
 #[cfg(feature = "nfe-sha1")]
-use carimbar_endpoints::Uf;
-#[cfg(feature = "nfe-sha1")]
-use carimbar_nfe::{ClienteNfe, Contingencia, ResultadoAutorizacao};
-use carimbar_nfse::{
+use crate::nfe::{ClienteNfe, Contingencia, ResultadoAutorizacao};
+use crate::nfse::{
     CacheParametros, ChaveNfse, ClienteAdn, ClienteParametros, ClienteSefin, Dps, ErroFiscal,
     EventoCancelamento, Executor, IdDps, LoteDistribuicao, ParametrosConvenio, Rejeicao,
     ResultadoEmissao, ResultadoEvento, StatusDistribuicao,
 };
-use carimbar_types::{Ambiente, ChaveAcesso, Cnpj, ConfirmacaoProducao, ModeloDocumento, TpAmb};
-use carimbar_vault::{Cofre, MetadadosCertificado};
-use carimbar_xml::Documento;
+use crate::types::{Ambiente, ChaveAcesso, Cnpj, ConfirmacaoProducao, ModeloDocumento, TpAmb};
+use crate::vault::{Cofre, MetadadosCertificado};
+use crate::xml::Documento;
 
 /// Política do kill switch de produção.
 pub trait KillSwitch: Send + Sync {
@@ -504,12 +504,10 @@ impl<'a> Emissor<'a> {
                     detalhe,
                 })
             }
-            Err(carimbar_nfse::ErroNfse::AntesDoEnvio(erro)) => {
+            Err(crate::nfse::ErroNfse::AntesDoEnvio(erro)) => {
                 let detalhe = erro.to_string();
                 self.journal.marcar_falha_antes_envio(id, &detalhe)?;
-                Err(ErroEmissor::Nfse(carimbar_nfse::ErroNfse::AntesDoEnvio(
-                    erro,
-                )))
+                Err(ErroEmissor::Nfse(crate::nfse::ErroNfse::AntesDoEnvio(erro)))
             }
             Err(erro) => {
                 self.journal.marcar_desconhecida(id, &erro.to_string())?;
@@ -564,7 +562,7 @@ impl<'a> Emissor<'a> {
                     xml_nfse: nfse.xml_nfse,
                 })
             }
-            Err(carimbar_nfse::ErroNfse::NaoEncontrada) => {
+            Err(crate::nfse::ErroNfse::NaoEncontrada) => {
                 let detalhe = "DPS não encontrada na consulta".to_owned();
                 self.journal.marcar_nao_encontrada(id, &detalhe)?;
                 Ok(ResultadoNfse::NaoEncontrada {
@@ -591,7 +589,7 @@ impl<'a> Emissor<'a> {
             .xml_retorno
             .as_deref()
             .ok_or_else(|| ErroEmissor::Journal("NF-e autorizada sem XML".to_owned()))?;
-        Ok(carimbar_danfe::gerar_danfe(xml)?)
+        Ok(crate::danfe::gerar_danfe(xml)?)
     }
 
     /// Gera o DANFSe de uma operação autorizada.
@@ -612,7 +610,7 @@ impl<'a> Emissor<'a> {
             .xml_retorno
             .as_deref()
             .ok_or_else(|| ErroEmissor::Journal("operação autorizada sem XML".to_owned()))?;
-        Ok(carimbar_danfe::gerar_danfse(xml)?)
+        Ok(crate::danfe::gerar_danfse(xml)?)
     }
 
     /// Consulta uma NFS-e pela chave.
@@ -722,12 +720,10 @@ impl<'a> Emissor<'a> {
                     detalhe,
                 })
             }
-            Err(carimbar_nfse::ErroNfse::AntesDoEnvio(erro)) => {
+            Err(crate::nfse::ErroNfse::AntesDoEnvio(erro)) => {
                 let detalhe = erro.to_string();
                 self.journal.marcar_falha_antes_envio(id, &detalhe)?;
-                Err(ErroEmissor::Nfse(carimbar_nfse::ErroNfse::AntesDoEnvio(
-                    erro,
-                )))
+                Err(ErroEmissor::Nfse(crate::nfse::ErroNfse::AntesDoEnvio(erro)))
             }
             Err(erro) => {
                 self.journal.marcar_desconhecida(id, &erro.to_string())?;
@@ -766,7 +762,7 @@ impl<'a> Emissor<'a> {
         codigo_servico: &str,
         competencia: &str,
         forcar_atualizacao: bool,
-    ) -> Result<carimbar_nfse::ConsultaAliquotas, ErroEmissor> {
+    ) -> Result<crate::nfse::ConsultaAliquotas, ErroEmissor> {
         let cliente = ClienteParametros::new(
             self.ambiente().tp_amb(),
             self.executor,
@@ -922,9 +918,9 @@ impl<'a> Emissor<'a> {
         let certificado = self.certificado_atual()?;
         let documento = Documento::parse(operacao.xml_preparado.as_bytes())?;
         let xml = if documento.caminhos_por_local("Signature").is_empty() {
-            carimbar_nfe::assinar_xml(&operacao.xml_preparado, &certificado)?
+            crate::nfe::assinar_xml(&operacao.xml_preparado, &certificado)?
         } else {
-            let verificacao = carimbar_nfe::verificar_xml(&operacao.xml_preparado)?;
+            let verificacao = crate::nfe::verificar_xml(&operacao.xml_preparado)?;
             if verificacao.certificado_der() != certificado.certificado_der() {
                 return Err(ErroEmissor::CertificadoDeOutraEmpresa);
             }
@@ -992,12 +988,12 @@ impl<'a> Emissor<'a> {
                     motivo,
                 })
             }
-            Err(carimbar_nfe::ErroNfe::AntesDoEnvio(erro)) => {
+            Err(crate::nfe::ErroNfe::AntesDoEnvio(erro)) => {
                 let detalhe = erro.to_string();
                 self.journal.marcar_falha_antes_envio(id, &detalhe)?;
-                Err(ErroEmissor::Nfe(carimbar_nfe::ErroNfe::AntesDoEnvio(erro)))
+                Err(ErroEmissor::Nfe(crate::nfe::ErroNfe::AntesDoEnvio(erro)))
             }
-            Err(carimbar_nfe::ErroNfe::ResultadoDesconhecido(erro)) => {
+            Err(crate::nfe::ErroNfe::ResultadoDesconhecido(erro)) => {
                 let detalhe = erro.to_string();
                 self.journal.marcar_desconhecida(id, &detalhe)?;
                 Ok(ResultadoNfe::Desconhecida {
@@ -1075,9 +1071,9 @@ impl<'a> Emissor<'a> {
     pub fn consultar_nfe(
         &self,
         chave: &ChaveAcesso,
-    ) -> Result<carimbar_nfe::ResultadoConsulta, ErroEmissor> {
+    ) -> Result<crate::nfe::ResultadoConsulta, ErroEmissor> {
         let uf = Uf::from_codigo(&chave.as_str()[0..2])
-            .map_err(|erro| ErroEmissor::Nfe(carimbar_nfe::ErroNfe::Endpoint(erro)))?;
+            .map_err(|erro| ErroEmissor::Nfe(crate::nfe::ErroNfe::Endpoint(erro)))?;
         let cliente = ClienteNfe::novo(
             self.ambiente().tp_amb(),
             uf,
@@ -1198,7 +1194,7 @@ fn uf_da_nfe(xml: &str) -> Result<Uf, ErroEmissor> {
         .and_then(|ide| ide.primeiro_filho("cUF"))
         .map(|elemento| elemento.texto())
         .ok_or(ErroEmissor::Divergencia { campo: "ide/cUF" })?;
-    Uf::from_codigo(&cuf).map_err(|erro| ErroEmissor::Nfe(carimbar_nfe::ErroNfe::Endpoint(erro)))
+    Uf::from_codigo(&cuf).map_err(|erro| ErroEmissor::Nfe(crate::nfe::ErroNfe::Endpoint(erro)))
 }
 
 #[cfg(feature = "nfe-sha1")]
@@ -1228,7 +1224,7 @@ fn validar_lote(lote: &LoteDistribuicao) -> Result<(), ErroEmissor> {
             .map(|erro| format!("{}: {}", erro.codigo, erro.descricao))
             .collect::<Vec<_>>()
             .join("; ");
-        return Err(ErroEmissor::Nfse(carimbar_nfse::ErroNfse::Distribuicao(
+        return Err(ErroEmissor::Nfse(crate::nfse::ErroNfse::Distribuicao(
             if detalhe.is_empty() {
                 "consulta do ADN rejeitada".to_owned()
             } else {
