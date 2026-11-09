@@ -75,7 +75,7 @@ Critério do marco: Comunicação mTLS demonstrada com servidor local; certifica
 Construir DPS, emissão, consulta e eventos; integrar Emissor, journal, idempotência e bloqueios de produção; acrescentar parâmetros municipais e sincronização ADN.
 
 - [x] [#11](https://github.com/seatrunk/carimbar/issues/11) — Implementar DPS e emissão, consulta e eventos da NFS-e Nacional.
-- [ ] [#13](https://github.com/seatrunk/carimbar/issues/13) — Implementar Emissor, journal, idempotência e bloqueios de produção.
+- [x] [#13](https://github.com/seatrunk/carimbar/issues/13) — Implementar Emissor, journal, idempotência e bloqueios de produção.
 - [ ] [#14](https://github.com/seatrunk/carimbar/issues/14) — Implementar distribuição ADN por NSU e parametrização municipal.
 
 Entrega da #11: modelo da DPS v1.01 com Id derivado dos campos, diferenças de
@@ -85,6 +85,17 @@ interpreta autorização, rejeição, duplicidade e resultado desconhecido, e ex
 consulta de NFS-e e de DPS para reconciliação. O cancelamento é o evento
 implementado; os demais tipos de evento ficam para incremento. Testes usam
 respostas simuladas e os XSD oficiais, sem acessar Sefin/ADN.
+
+Entrega da #13: fachada `Emissor` sobre cofre, journal e transporte. O journal
+SQLite persiste operação, XML preparado/enviado, XML autorizado, chave e
+protocolo, com estados explícitos. A idempotência usa chave única por empresa,
+ambiente e operação e hash do conteúdo; o envio é reivindicado por `UPDATE`
+atômico, e resultado desconhecido só é reenviado após reconciliação por
+`GET /dps/{id}`. Produção exige promoção explícita com `ConfirmacaoProducao`
+vinculada ao CNPJ, certificado da empresa e kill switch `CARIMBAR_PRODUCAO`.
+Testes cobrem repetição, conteúdo divergente, reinício, timeout, concorrência
+entre conexões, kill switch e divergência de CNPJ. O primeiro fluxo local de
+NFS-e roda com transporte simulado.
 
 Critério do marco: Fluxo completo com transporte simulado pelas APIs públicas, persistência e retomada; timeout não gera reenvio cego nem nota duplicada.
 

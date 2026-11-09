@@ -28,7 +28,7 @@ domínio conhece CLI, MCP ou Python.
 | `carimbar-nfse` | DPS, NFS-e, eventos, ADN e parametrização municipal | DPS, emissão, consulta e cancelamento (#11); ADN e parâmetros municipais em #14 |
 | `carimbar-nfe` | NF-e 4.00 com IBS/CBS, eventos e contingência SVC | Pendente (#18) |
 | `carimbar-danfe` | DANFSe e DANFE em PDF a partir do XML autorizado | Pendente (#15, #19) |
-| `carimbar` | Fachada `Emissor`, journal, idempotência e bloqueios de produção | Pendente (#13) |
+| `carimbar` | Fachada `Emissor`, journal, idempotência e bloqueios de produção | Implementado (#13); NFS-e pela fachada |
 | `carimbar-cli` | CLI local | Pendente (#16) |
 | `carimbar-mcp` | MCP local em duas fases (`preparar_*`/`confirmar_*`) | Pendente (#17) |
 | `carimbar-py` | Binding Python síncrono | Esqueleto; API completa em #20 |
@@ -385,6 +385,34 @@ JSON da Sefin Nacional.
 - **Escopo:** endereço, telefone, comércio exterior, obra, evento, benefício
   municipal e os grupos de crédito presumido/diferimento do IBS/CBS não estão
   modelados nesta entrega.
+
+## 6.5 Fachada, journal e produção (#13)
+
+`carimbar` expõe `Emissor`, que coordena cofre, journal, assinatura e transporte
+sem duplicar regras entre CLI, MCP e Python.
+
+- **Duas fases:** `preparar_nfse` valida a DPS, calcula o hash e persiste a
+  operação como `preparada`; `confirmar_nfse` assina, reivindica o envio com um
+  `UPDATE ... WHERE estado IN (...)` e chama a Sefin uma vez.
+- **Idempotência:** chave única por empresa, ambiente, tipo e Id da DPS. Mesmo
+  conteúdo devolve a operação existente; conteúdo diferente retorna
+  `ConflitoIdempotencia`. O journal também guarda XML preparado, XML enviado,
+  XML autorizado, chave e protocolo.
+- **Resultado desconhecido:** uma falha depois do início da escrita persiste o
+  estado `desconhecida`; `reconciliar_nfse` consulta `GET /dps/{id}` e, se
+  houver NFS-e, busca `GET /nfse/{chave}`. Só depois de uma reconciliação que
+  confirme ausência (`nao_encontrada`) um novo `confirmar_nfse` pode reenviar.
+- **Reinício:** o journal e o cofre são arquivos locais; reabrir a fachada
+  retoma operações `autorizada`, `rejeitada`, `enviada` e `desconhecida` sem
+  perder o estado.
+- **Produção:** `promover_producao` exige `ConfirmacaoProducao` do CNPJ da
+  empresa, certificado pertencente a ela e kill switch liberado. O kill switch
+  lê `CARIMBAR_PRODUCAO` a cada operação de produção; `0`, `false` ou `nao`
+  bloqueiam. A promoção é administrativa e não é exposta pelo MCP.
+- **Limites:** o journal não processa segredos; o cofre continua sendo a única
+  fonte de certificado. A reconciliação de cancelamento depende de uma consulta
+  de eventos que ainda não foi implementada; cancelamentos com resultado
+  desconhecido ficam nesse estado até a próxima entrega.
 
 ## 7. Decisões em aberto
 
