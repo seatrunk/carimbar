@@ -30,6 +30,14 @@ Confirmar versões oficiais, ambientes e decisões da arquitetura; recuperar a p
 - [x] [#5](https://github.com/seatrunk/carimbar/issues/5) — Documentar contratos fiscais, arquitetura e limites do MVP.
 - [ ] [#6](https://github.com/seatrunk/carimbar/issues/6) — Concluir e tornar recuperável a publicação inicial 0.0.1.
 
+Preparação da #6 entregue: wheels separados para macOS Intel (`macos-15-intel`) e
+Apple Silicon (`macos-15`), pacotes Perl no manylinux e musllinux, smokes de
+instalação dos wheels e do sdist, `twine check`, `skip-existing` no PyPI,
+`scripts/release-status.sh` e recuperação documentada em `docs/release.md`. A
+publicação real continua manual: exige tag, aprovação dos environments
+`crates-io`/`pypi` e autorização. A issue permanece aberta até os 13 crates e o
+pacote Python serem publicados e evidenciados.
+
 Critério do marco: Contratos e limites documentados; procedimento de release verificável. A publicação 0.0.1 não é condição para começar o desenvolvimento nem comprova prontidão fiscal.
 
 ### Etapa 1. XML, certificados e assinaturas

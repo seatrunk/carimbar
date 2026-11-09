@@ -6,11 +6,12 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-    # Recuperação de uma release que parou no meio (ex.: 429 do crates.io):
-    # roda de novo a partir da tag já existente, sem criar tag nova.
+    # Recuperação de uma release que parou no meio (ex.: 429 do crates.io ou
+    # um wheel já enviado ao PyPI): roda de novo a partir da tag já existente,
+    # sem criar tag nova.
     inputs:
       tag:
-        description: "Tag já existente a (re)publicar, ex.: v0.0.1"
+        description: "Tag já existente a (re)publicar, ex.: v0.0.2"
         required: true
 
 permissions:
@@ -46,20 +47,35 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y xmlsec1 libssl-dev pkg-config
       - run: cargo test --workspace --all-features --locked
       - run: ./scripts/check-no-certs.sh
+      - name: Estado atual dos registros (não publica)
+        run: |
+          if [[ -x ./scripts/release-status.sh ]]; then
+            ./scripts/release-status.sh | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          else
+            echo "scripts/release-status.sh não existe nesta tag; auditoria pulada" \
+              | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          fi
 
   wheels:
     needs: [verificar]
-    name: wheel ${{ matrix.target }} (${{ matrix.os }})
+    name: wheel ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, target: x86_64, manylinux: auto }
-          - { os: ubuntu-latest, target: aarch64, manylinux: auto }
-          - { os: ubuntu-latest, target: x86_64, manylinux: musllinux_1_2 }
-          - { os: macos-latest, target: universal2-apple-darwin, manylinux: "" }
-          - { os: windows-latest, target: x64, manylinux: "" }
+          # Linux glibc e musl: o OpenSSL vendored compila via Perl. Nos
+          # containers manylinux faltam IPC::Cmd e Time::Piece; no musllinux
+          # (Alpine) os dois já vêm no pacote perl.
+          - { name: linux-x86_64, os: ubuntu-latest, target: x86_64, manylinux: auto }
+          - { name: linux-aarch64, os: ubuntu-latest, target: aarch64, manylinux: auto }
+          - { name: musllinux-x86_64, os: ubuntu-latest, target: x86_64, manylinux: musllinux_1_2 }
+          # Wheels separados em vez de universal2: o build universal2 do
+          # maturin é frágil. macos-15-intel é o runner x86_64 atual; o
+          # macos-14 foi aposentado em 2026-11-02.
+          - { name: macos-intel, os: macos-15-intel, target: x86_64-apple-darwin, manylinux: "" }
+          - { name: macos-arm64, os: macos-15, target: aarch64-apple-darwin, manylinux: "" }
+          - { name: windows-x64, os: windows-latest, target: x64, manylinux: "" }
     steps:
       - uses: actions/checkout@v5
         with:
@@ -70,10 +86,96 @@ jobs:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
           args: --release --out dist
+          before-script-linux: |
+            if command -v apk >/dev/null 2>&1; then
+              apk add --no-cache perl
+            elif command -v dnf >/dev/null 2>&1; then
+              dnf install -y perl-IPC-Cmd perl-Time-Piece
+            else
+              yum install -y perl-IPC-Cmd perl-Time-Piece
+            fi
       - uses: actions/upload-artifact@v4
         with:
-          name: wheel-${{ matrix.os }}-${{ matrix.target }}-${{ matrix.manylinux }}
+          name: wheel-${{ matrix.name }}
           path: crates/carimbar-py/dist/*.whl
+
+  wheel-smoke:
+    # Instala cada wheel na plataforma correspondente e roda o teste básico.
+    needs: [wheels]
+    name: smoke ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64, os: ubuntu-latest, artifact: wheel-linux-x86_64 }
+          - { name: macos-intel, os: macos-15-intel, artifact: wheel-macos-intel }
+          - { name: macos-arm64, os: macos-15, artifact: wheel-macos-arm64 }
+          - { name: windows-x64, os: windows-latest, artifact: wheel-windows-x64 }
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist
+      - name: Instala o wheel e roda o teste básico
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install dist/*.whl
+          python -c "import carimbar as c; assert c.validar_cnpj('00.000.001/0001-36'); assert not c.validar_cnpj('00000001000137'); print('ok', c.__version__)"
+
+  wheel-smoke-linux:
+    # Wheels que não rodam no runner x86_64 glibc: musllinux (Alpine) e
+    # aarch64 (QEMU). Só instala e importa; não repete a suíte completa.
+    needs: [wheels]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wheel musllinux
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-musllinux-x86_64
+          path: dist-musl
+      - name: Wheel aarch64
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-linux-aarch64
+          path: dist-arm64
+      - uses: docker/setup-qemu-action@v3
+      - name: Instala e importa o wheel musllinux
+        run: |
+          docker run --rm -v "$PWD/dist-musl:/dist" python:3.12-alpine \
+            sh -c "python -m pip install --quiet /dist/*.whl && python -c 'import carimbar; print(\"ok musllinux\", carimbar.__version__)'"
+      - name: Instala e importa o wheel aarch64
+        run: |
+          docker run --rm --platform linux/arm64 -v "$PWD/dist-arm64:/dist" python:3.12-slim \
+            sh -c "python -m pip install --quiet /dist/*.whl && python -c 'import carimbar; print(\"ok aarch64\", carimbar.__version__)'"
+
+  wheel-pytest:
+    # Suíte pytest completa sobre o wheel manylinux x86_64 (usa openssl CLI e
+    # o harness sintético do repositório).
+    needs: [wheels]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-linux-x86_64
+          path: dist
+      - run: |
+          python -m pip install --upgrade pip pytest
+          python -m pip install dist/*.whl
+          python -m pytest crates/carimbar-py/tests -q
 
   sdist:
     needs: [verificar]
@@ -92,9 +194,49 @@ jobs:
           name: sdist
           path: crates/carimbar-py/dist/*.tar.gz
 
+  sdist-smoke:
+    # Instala o sdist (compila o wheel a partir da fonte) e roda o teste básico.
+    needs: [sdist]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist
+      - name: Instala o sdist e roda o teste básico
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install dist/*.tar.gz
+          python -c "import carimbar as c; assert c.validar_cnpj('00.000.001/0001-36'); assert not c.validar_cnpj('00000001000137'); print('ok sdist', c.__version__)"
+
+  dist-check:
+    # Valida metadados de todos os artefatos antes de publicar.
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Lista os artefatos
+        run: ls -l dist
+      - name: Confere metadados com twine
+        run: |
+          python -m pip install --upgrade pip twine
+          python -m twine check dist/*
+
   pypi:
     # Trusted publishing (OIDC): sem token guardado no repo.
-    needs: [wheels, sdist]
+    # skip-existing torna a recuperação possível: um re-run após falha parcial
+    # não tenta reenviar o que já está publicado.
+    needs: [dist-check, wheel-smoke, wheel-smoke-linux, wheel-pytest, sdist-smoke]
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -109,6 +251,7 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
+          skip-existing: true
 
   crates-io:
     # Primeira publicação por token (escopo publish-new, validade curta) guardado no
@@ -137,4 +280,5 @@ jobs:
         # O token só existe neste passo, via env; nunca é ecoado.
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: "$RUNNER_TEMP/release-tools/scripts/publish-crates.sh"
+        run: |
+          "$RUNNER_TEMP/release-tools/scripts/publish-crates.sh"

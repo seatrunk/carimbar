@@ -26,6 +26,13 @@ jobs:
       - run: ./scripts/test-check-no-certs.sh
       - run: ./scripts/check-no-certs.sh
 
+  workflows:
+    # O release não roda em PR; valida todos os workflows (inclui shellcheck).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7
+
   fmt:
     runs-on: ubuntu-latest
     steps:
