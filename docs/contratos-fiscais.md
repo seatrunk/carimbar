@@ -29,7 +29,7 @@ domínio conhece CLI, MCP ou Python.
 | `carimbar-nfe` | NF-e 4.00 com IBS/CBS, eventos e contingência SVC | Pendente (#18) |
 | `carimbar-danfe` | DANFSe e DANFE em PDF a partir do XML autorizado | DANFSe implementado (#15); DANFE em #19 |
 | `carimbar` | Fachada `Emissor`, journal, idempotência e bloqueios de produção | Implementado (#13); NFS-e pela fachada |
-| `carimbar-cli` | CLI local | Pendente (#16) |
+| `carimbar-cli` | CLI local | Implementado (#16) |
 | `carimbar-mcp` | MCP local em duas fases (`preparar_*`/`confirmar_*`) | Pendente (#17) |
 | `carimbar-py` | Binding Python síncrono | Esqueleto; API completa em #20 |
 
@@ -458,6 +458,30 @@ parametrização municipal; a fachada persiste o cursor e os documentos.
   padrão. Uma troca para Typst pode ser feita sem mudar a API pública.
 - **Integração:** `Emissor::gerar_danfse` só gera para operação `autorizada`,
   usando o XML persistido no journal; não há nova chamada à Sefin.
+
+
+## 6.8 CLI local (#16)
+
+O binário `carimbar` reutiliza a fachada e o cofre; não duplica regras fiscais.
+
+- **Comandos:** `empresa importar/listar/promover/rebaixar`, `emitir`,
+  `consultar`, `cancelar`, `danfse`, `adn sincronizar/documentos` e
+  `parametros convenio/aliquota/retencoes`.
+- **Segredos:** senha do PFX em `CARIMBAR_SENHA_PFX`; KEK em `CARIMBAR_KEK`
+  (64 hex). Nenhum dos dois é aceito em argumento.
+- **Saída:** humana por padrão ou JSON com `--json`. Códigos estáveis: `2` uso,
+  `3` rejeição fiscal, `4` transporte/resultado desconhecido, `5` produção
+  bloqueada, `6` conflito de idempotência, `1` erro operacional.
+- **Produção:** `empresa promover` exige `--confirmar` com o CNPJ e respeita
+  `CARIMBAR_PRODUCAO=0`.
+- **Emissão:** aceita DPS em XML, prepara pelo journal, assina e confirma;
+  pode gravar XML autorizado e DANFSe.
+- **Teste simulado:** em build de depuração, `--replay <arquivo>` lê respostas
+  JSON prontas. Em release, o recurso é recusado. Testes de processo cobrem
+  `--help`, `--version`, falta de empresa, emissão completa, rejeição e kill
+  switch.
+- **Limites:** a CLI só emite NFS-e neste momento; NF-e entra na #18. O
+  transporte real exige `CARIMBAR_RAIZES` com raízes DER.
 
 ## 7. Decisões em aberto
 

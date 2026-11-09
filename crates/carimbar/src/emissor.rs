@@ -17,7 +17,7 @@
 use crate::erro::ErroEmissor;
 use crate::journal::{EstadoOperacao, Journal, Operacao, TipoOperacao, hash_conteudo};
 use carimbar_cert::CertificadoA1;
-use carimbar_dsig::assinar;
+use carimbar_dsig::{assinar, verificar};
 use carimbar_nfse::{
     CacheParametros, ChaveNfse, ClienteAdn, ClienteParametros, ClienteSefin, Dps, ErroFiscal,
     EventoCancelamento, Executor, IdDps, LoteDistribuicao, ParametrosConvenio, Rejeicao,
@@ -302,6 +302,59 @@ impl<'a> Emissor<'a> {
         Ok(OperacaoPreparada { operacao, nova })
     }
 
+    /// Prepara uma DPS já serializada em XML.
+    ///
+    /// Útil para CLI, MCP e Python, que recebem XML em vez de montar a struct.
+    /// Valida raiz, Id, ambiente e CNPJ do prestador, mas não substitui a
+    /// validação XSD do chamador. O XML pode estar assinado; nesse caso a
+    /// assinatura é verificada no envio e precisa ser do certificado atual.
+    pub fn preparar_nfse_xml(&mut self, xml: &str) -> Result<OperacaoPreparada, ErroEmissor> {
+        let documento = Documento::parse(xml.as_bytes())?;
+        if documento.raiz().nome().local() != "DPS" {
+            return Err(ErroEmissor::Divergencia {
+                campo: "raiz da DPS",
+            });
+        }
+        let inf = documento
+            .raiz()
+            .primeiro_filho("infDPS")
+            .ok_or(ErroEmissor::Divergencia { campo: "infDPS" })?;
+        let id = inf.atributo("Id").ok_or(ErroEmissor::Divergencia {
+            campo: "infDPS/@Id",
+        })?;
+        let ambiente = self.ambiente().tp_amb();
+        let id = IdDps::parse(id, ambiente)?;
+        let tp_amb = inf
+            .primeiro_filho("tpAmb")
+            .map(|elemento| elemento.texto())
+            .unwrap_or_default();
+        if tp_amb != ambiente.codigo().to_string() {
+            return Err(ErroEmissor::Divergencia {
+                campo: "infDPS/tpAmb",
+            });
+        }
+        let cnpj = inf
+            .primeiro_filho("prest")
+            .and_then(|prest| prest.primeiro_filho("CNPJ"))
+            .map(|elemento| elemento.texto())
+            .unwrap_or_default();
+        if cnpj != self.empresa.as_str() {
+            return Err(ErroEmissor::Divergencia {
+                campo: "infDPS/prest/CNPJ",
+            });
+        }
+        let hash = hash_conteudo(xml);
+        let (operacao, nova) = self.journal.criar(
+            &self.empresa,
+            ambiente,
+            TipoOperacao::EmitirNfse,
+            id.as_str(),
+            &hash,
+            xml,
+        )?;
+        Ok(OperacaoPreparada { operacao, nova })
+    }
+
     /// Confirma a operação, assinando e enviando no máximo uma vez.
     ///
     /// Estados já autorizados ou rejeitados são devolvidos sem rede. Estados de
@@ -329,8 +382,20 @@ impl<'a> Emissor<'a> {
         self.exigir_producao_permitida()?;
         let certificado = self.certificado_atual()?;
         let documento = Documento::parse(operacao.xml_preparado.as_bytes())?;
-        let assinado = assinar(&documento, &operacao.chave_operacao, &certificado)?;
-        let xml = assinado.to_xml()?;
+        let xml = if documento.caminhos_por_local("Signature").is_empty() {
+            assinar(&documento, &operacao.chave_operacao, &certificado)?.to_xml()?
+        } else {
+            let verificacao = verificar(&documento)?;
+            if verificacao.id() != operacao.chave_operacao {
+                return Err(ErroEmissor::Divergencia {
+                    campo: "assinatura da DPS",
+                });
+            }
+            if verificacao.certificado_der() != certificado.certificado_der() {
+                return Err(ErroEmissor::CertificadoDeOutraEmpresa);
+            }
+            operacao.xml_preparado.clone()
+        };
         if !self.journal.reivindicar_envio(id, &xml)? {
             let atual = self.journal.operacao(id)?;
             return match atual.estado {
@@ -539,8 +604,20 @@ impl<'a> Emissor<'a> {
         self.exigir_producao_permitida()?;
         let certificado = self.certificado_atual()?;
         let documento = Documento::parse(operacao.xml_preparado.as_bytes())?;
-        let assinado = assinar(&documento, &operacao.chave_operacao, &certificado)?;
-        let xml = assinado.to_xml()?;
+        let xml = if documento.caminhos_por_local("Signature").is_empty() {
+            assinar(&documento, &operacao.chave_operacao, &certificado)?.to_xml()?
+        } else {
+            let verificacao = verificar(&documento)?;
+            if verificacao.id() != operacao.chave_operacao {
+                return Err(ErroEmissor::Divergencia {
+                    campo: "assinatura da DPS",
+                });
+            }
+            if verificacao.certificado_der() != certificado.certificado_der() {
+                return Err(ErroEmissor::CertificadoDeOutraEmpresa);
+            }
+            operacao.xml_preparado.clone()
+        };
         if !self.journal.reivindicar_envio(id, &xml)? {
             return Err(ErroEmissor::EmAndamento(id));
         }
