@@ -115,6 +115,16 @@ JSON, com códigos de saída estáveis (2 uso, 3 fiscal, 4 transporte/desconheci
 e kill switch) e o fluxo completo roda com transporte replay em build de
 depuração. `--help` e `--version` funcionam.
 
+Entrega da #17: servidor MCP stdio com `rmcp`, ferramentas de consulta, emissão,
+cancelamento, DANFSe, ADN e parâmetros. Operações fiscais usam `preparar_*` e
+`confirmar_*`; o token é de uso único, expira, fica vinculado a empresa/ambiente/
+conteúdo e não sobrevive ao reinício. Produção exige `confirmar_producao=true`.
+O servidor não expõe importação de certificado, senha, chave nem promoção de
+produção; o kill switch da fachada continua valendo. Testes cobrem tools/list,
+fluxo completo com replay, recompensa de token, expiração, gate de produção,
+kill switch e stdout exclusivamente JSON.
+
+
 
 
 Critério do marco: Fluxo completo com transporte simulado pelas APIs públicas, persistência e retomada; timeout não gera reenvio cego nem nota duplicada.
@@ -125,7 +135,7 @@ Entregar DANFSe, CLI e MCP; iniciar a validação real de NFS-e por disparo manu
 
 - [x] [#15](https://github.com/seatrunk/carimbar/issues/15) — Gerar DANFSe em PDF a partir da NFS-e autorizada.
 - [x] [#16](https://github.com/seatrunk/carimbar/issues/16) — Implementar CLI de emissão, consulta e administração de empresas.
-- [ ] [#17](https://github.com/seatrunk/carimbar/issues/17) — Implementar servidor MCP local com preparação e confirmação de operações.
+- [x] [#17](https://github.com/seatrunk/carimbar/issues/17) — Implementar servidor MCP local com preparação e confirmação de operações.
 - [ ] [#21](https://github.com/seatrunk/carimbar/issues/21) — Validar o MVP ponta a ponta e criar homologação manual protegida.
 
 Critério do marco: NFS-e emitida e consultada em ambiente de teste, com PDF e interfaces utilizáveis. A issue de homologação permanece aberta até validar também NF-e e Python.

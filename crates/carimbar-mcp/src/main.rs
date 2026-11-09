@@ -1,11 +1,29 @@
-//! Servidor MCP stdio (rmcp) do carimbar.
+//! Servidor MCP stdio do carimbar.
 //!
-//! Status: stub. Implementação prevista na Etapa 4 (`docs/plano-mvp.md`, issue
-//! #17): ferramentas em duas fases (`preparar_*` / `confirmar_*`), confirmação
-//! humana em produção ligada por padrão (D9) e nenhuma ferramenta que exponha
-//! certificado, senha ou chave.
+//! Status: implementação da Etapa 4 (`docs/plano-mvp.md`, issue #17).
 
-fn main() {
-    eprintln!("carimbar-mcp: ainda não implementado (etapa 4)");
-    std::process::exit(2);
+mod servidor;
+
+use rmcp::ServiceExt;
+
+#[tokio::main]
+async fn main() {
+    if let Err(erro) = executar().await {
+        eprintln!("carimbar-mcp: {erro}");
+        std::process::exit(1);
+    }
+}
+
+async fn executar() -> Result<(), String> {
+    let config = servidor::Config::de_ambiente()?;
+    let servidor = servidor::ServidorCarimbar::novo(config);
+    let servico = servidor
+        .serve(rmcp::transport::stdio())
+        .await
+        .map_err(|erro| format!("falha ao iniciar MCP: {erro}"))?;
+    servico
+        .waiting()
+        .await
+        .map_err(|erro| format!("falha no servidor MCP: {erro}"))?;
+    Ok(())
 }
