@@ -87,16 +87,44 @@ O runner `macos-14` foi aposentado pelo GitHub em 2026-11-02 e não é mais usad
 ### OpenSSL vendored nos wheels Linux
 
 O wheel habilita `nfe-sha1` com OpenSSL vendored, e o `Configure` do OpenSSL usa
-Perl. Nos containers manylinux faltam `IPC::Cmd` e `Time::Piece`, instalados antes
-do build:
+Perl com `IPC::Cmd` e `Time::Piece`. A imagem que o `maturin-action` usa depende
+do alvo, e cada uma tem um gerenciador de pacotes diferente:
+
+| Alvo | Imagem | Gerenciador |
+|---|---|---|
+| `linux-x86_64` (`manylinux: auto`) | manylinux (PyPA) | `dnf`/`yum` |
+| `linux-aarch64` (`manylinux: 2_28`) | `ghcr.io/rust-cross/manylinux_2_28-cross:aarch64` (Ubuntu, gcc 7.5) | `apt-get` |
+| `musllinux-x86_64` (`musllinux_1_2`) | `ghcr.io/rust-cross/rust-musl-cross:x86_64-musl` (Ubuntu) | `apt-get` |
+
+O `linux-aarch64` fixa `manylinux_2_28` em vez de `auto` porque a imagem
+`manylinux2014-cross` traz gcc 4.8.5, que não define `__ARM_ARCH` e quebra o
+assembly do `ring` 0.17 com `#error "ARM assembler must define __ARM_ARCH"`. A
+imagem `2_28` tem gcc 7.5. Consequência: o wheel aarch64 exige **glibc >= 2.28**
+(distros mais antigas, como Ubuntu 18.04 com glibc 2.27, não instalam esse wheel).
+
+O `before-script-linux` detecta o gerenciador e instala Perl antes do build:
 
 ```sh
-dnf install -y perl-IPC-Cmd perl-Time-Piece   # ou yum
+if command -v apk >/dev/null 2>&1; then
+  apk add --no-cache perl
+elif command -v apt-get >/dev/null 2>&1; then
+  apt-get update && apt-get install -y perl
+elif command -v dnf >/dev/null 2>&1; then
+  dnf install -y perl-IPC-Cmd perl-Time-Piece
+elif command -v yum >/dev/null 2>&1; then
+  yum install -y perl-IPC-Cmd perl-Time-Piece
+else
+  echo "before-script-linux: gerenciador de pacotes não reconhecido" >&2
+  exit 1
+fi
+perl -MIPC::Cmd -MTime::Piece -e1
 ```
 
-No musllinux (Alpine) os dois módulos já vêm no pacote `perl`; o workflow instala
-`perl` com `apk` para garantir. Sem essa preparação o build falha com
-`Can't locate IPC/Cmd.pm` ou `Can't locate Time/Piece.pm`.
+No musllinux **não** é Alpine: a imagem `rust-musl-cross` é Ubuntu e usa
+`apt-get`. O ramo `apk` continua para imagens musl baseadas em Alpine. Sem essa
+preparação o build falha com `Can't locate IPC/Cmd.pm` ou
+`Can't locate Time/Piece.pm`. O job `wheel-cross` do `ci.yml` builda e importa
+esses dois alvos cross em PRs com o mesmo bloco; mantenha os dois iguais.
 
 ## Crates publicados
 

@@ -129,6 +129,57 @@ jobs:
           pytest crates/carimbar-py/tests -q
           python -c "import carimbar as c; assert c.validar_cnpj('00.000.001/0001-36'); assert not c.validar_cnpj('00000001000137'); print('ok', c.__version__)"
 
+  wheel-cross:
+    # Mesma configuração do job `wheels` do release.yml para os alvos que usam
+    # as imagens rust-cross (Ubuntu com apt) em vez das imagens quay.io/pypa:
+    # linux-aarch64 (manylinux-cross) e musllinux-x86_64 (musl-cross).
+    # Builda e importa cada wheel; não publica nada.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-aarch64, target: aarch64, manylinux: 2_28 }
+          - { name: musllinux-x86_64, target: x86_64, manylinux: musllinux_1_2 }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: crates/carimbar-py
+          command: build
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --out dist
+          # Manter igual ao before-script-linux do job wheels em release.yml.
+          # O OpenSSL vendored precisa de Perl com IPC::Cmd e Time::Piece; a
+          # imagem usada depende do alvo e o gerenciador de pacotes muda.
+          before-script-linux: |
+            if command -v apk >/dev/null 2>&1; then
+              apk add --no-cache perl
+            elif command -v apt-get >/dev/null 2>&1; then
+              apt-get update && apt-get install -y perl
+            elif command -v dnf >/dev/null 2>&1; then
+              dnf install -y perl-IPC-Cmd perl-Time-Piece
+            elif command -v yum >/dev/null 2>&1; then
+              yum install -y perl-IPC-Cmd perl-Time-Piece
+            else
+              echo "before-script-linux: gerenciador de pacotes não reconhecido" >&2
+              exit 1
+            fi
+            perl -MIPC::Cmd -MTime::Piece -e1
+      - uses: docker/setup-qemu-action@v3
+        if: matrix.name == 'linux-aarch64'
+      - name: Instala e importa o wheel musllinux
+        if: matrix.name == 'musllinux-x86_64'
+        run: |
+          docker run --rm -v "$PWD/crates/carimbar-py/dist:/dist" python:3.12-alpine \
+            sh -c "python -m pip install --quiet /dist/*.whl && python -c 'import carimbar; print(\"ok musllinux\", carimbar.__version__)'"
+      - name: Instala e importa o wheel aarch64
+        if: matrix.name == 'linux-aarch64'
+        run: |
+          docker run --rm --platform linux/arm64 -v "$PWD/crates/carimbar-py/dist:/dist" python:3.12-slim \
+            sh -c "python -m pip install --quiet /dist/*.whl && python -c 'import carimbar; print(\"ok aarch64\", carimbar.__version__)'"
+
   package:
     # Garante que o workspace continua publicável (sem enviar nada).
     runs-on: ubuntu-latest
