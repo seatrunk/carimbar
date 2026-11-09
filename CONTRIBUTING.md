@@ -29,6 +29,8 @@ cargo deny check
 (cd crates/carimbar-py && maturin build)  # feature nfe-sha1 com OpenSSL vendored
 ./scripts/check-no-certs.sh
 ./scripts/test-check-no-certs.sh
+# Valida todos os workflows, inclusive o release que não roda em PR.
+docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7
 ```
 
 Toolchain fixado em `rust-toolchain.toml`; MSRV declarado em `Cargo.toml` (`rust-version`).

@@ -47,6 +47,17 @@ ja_publicado() {
   python3 -c 'import json,sys; v=sys.argv[1]; sys.exit(0 if any(json.loads(l)["vers"]==v for l in sys.stdin if l.strip()) else 1)' "$versao" <<<"$corpo"
 }
 
+# A publicação anterior pode demorar a aparecer no índice; sem isso o próximo
+# crate falha ao resolver a dependência recém-publicada.
+esperar_indice() {
+  local nome="$1" versao="$2"
+  for _ in $(seq 1 12); do
+    ja_publicado "$nome" "$versao" && return 0
+    sleep 10
+  done
+  return 1
+}
+
 for linha in "${ORDEM[@]}"; do
   read -r nome versao <<<"$linha"
   if ja_publicado "$nome" "$versao"; then
@@ -64,14 +75,27 @@ for linha in "${ORDEM[@]}"; do
     rc=$?
     set -e
     echo "$saida"
-    (( rc == 0 )) && break
-    if grep -q '429' <<<"$saida"; then
+    if (( rc == 0 )); then
+      esperar_indice "$nome" "$versao" \
+        || echo "::warning::$nome $versao publicado, mas o índice ainda não confirmou"
+      break
+    fi
+    if grep -Eiq 'already (been )?(uploaded|published)|already exists' <<<"$saida"; then
+      echo "pula $nome $versao: já foi publicado"
+      break
+    fi
+    if grep -Eq '429' <<<"$saida"; then
       quando=$(grep -oE 'try again after [A-Za-z]{3}, [0-9]{2} [A-Za-z]{3} [0-9]{4} [0-9:]{8} GMT' <<<"$saida" | sed 's/try again after //' | head -1)
       alvo=$(date -d "${quando:-now + 10 minutes}" +%s)
       espera=$(( alvo - $(date +%s) + 30 ))
       (( espera < 30 )) && espera=30
       echo "limite de crate novo; espera ${espera}s (até ${quando:-+10 min})"
       sleep "$espera"
+      continue
+    fi
+    if grep -Eq 'failed to select a version|no matching package named' <<<"$saida"; then
+      echo "dependência ainda não visível no índice; espera 30s e tenta de novo"
+      sleep 30
       continue
     fi
     echo "::error::falha não recuperável ao publicar $nome"
@@ -82,4 +106,8 @@ for linha in "${ORDEM[@]}"; do
     exit 1
   fi
 done
-echo "todos os crates publicáveis estão no crates.io"
+if (( DRY_RUN )); then
+  echo "dry-run: os crates acima seriam publicados"
+else
+  echo "todos os crates publicáveis estão no crates.io"
+fi

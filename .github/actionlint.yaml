@@ -1,0 +1,6 @@
+# Rótulos do GitHub Actions mais novos que a lista embutida no actionlint.
+# `macos-15-intel` é o runner x86_64 atual (o macos-14 foi aposentado em
+# 2026-11-02 e o macos-13 em 2025-12-04). Ver docs/release.md.
+self-hosted-runner:
+  labels:
+    - macos-15-intel
