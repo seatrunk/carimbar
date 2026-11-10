@@ -33,7 +33,7 @@
 //! let dps = Dps {
 //!     ambiente: TpAmb::Homologacao,
 //!     dh_emi: DataHoraFiscal::parse("2026-11-08T10:00:00-03:00")?,
-//!     ver_aplic: "carimbar-0.0.2".to_owned(),
+//!     ver_aplic: "carimbar-0.0.3".to_owned(),
 //!     serie: SerieDps::new(1)?,
 //!     numero: NumeroDps::new(1)?,
 //!     d_compet: DataFiscal::parse("2026-11-08")?,
