@@ -47,8 +47,10 @@ O carimbar existe para quem quer emitir direto, com:
 
 **NFS-e Nacional**
 - DPS, emissão, consulta e cancelamento.
+- Pedido simples em JSON, com numeração automática da DPS e idempotência pelo id da venda.
+- Validação de série (E0010), `totTrib` por regime (E0712/E0713) e e-mail (E0247) antes do envio.
 - Distribuição ADN por NSU.
-- Parâmetros municipais.
+- Parâmetros municipais e diagnóstico da instalação.
 
 **NF-e modelo 55**
 - Leiaute 4.00 com campos de IBS e CBS (NT 2025.002-RTC, PL_010).
@@ -163,6 +165,25 @@ with open("danfse.pdf", "wb") as arquivo:
     arquivo.write(emissor.gerar_danfse(resultado["operacao"]))
 ```
 
+Também é possível emitir com dados simples. O prestador fica em uma configuração
+reutilizável e a DPS é montada, numerada e validada pelo carimbar:
+
+```python
+prestador = {
+    "municipio": "3550308",   # cLocEmi
+    "simples": 3,             # 1 não optante, 2 MEI, 3 ME/EPP
+    "apuracao": 1,
+    "percentual_simples_nacional": "6.00",
+}
+pedido = {
+    "servico": "010101",
+    "descricao": "Consultoria prestada",
+    "valor_centavos": 10000,
+    "tomador": {"cnpj": "00000002000008", "nome": "Cliente"},
+}
+resultado = emissor.emitir_pedido(pedido, prestador, idempotencia="venda-123")
+```
+
 - Operações bloqueantes liberam o GIL.
 - As exceções distinguem validação, rejeição fiscal, transporte, produção, conflito e cofre.
 - Use dados sintéticos nos testes e **nunca versione PFX, senha, KEK ou XML de empresa real.**
@@ -181,6 +202,14 @@ carimbar --empresa 00000001000136 \
 # Emite a NFS-e e gera o PDF
 carimbar --empresa 00000001000136 \
   emitir --dps dps.xml --xml-saida nfse.xml --pdf-saida danfse.pdf
+
+# Ou a partir de um pedido simples (a DPS é montada e numerada)
+carimbar --empresa 00000001000136 \
+  emitir --pedido pedido.json --prestador prestador.json \
+  --idempotencia venda-123 --pdf-saida danfse.pdf
+
+# Confere certificado, kill switch e convênio do município
+carimbar --empresa 00000001000136 diagnostico --municipio 3550308
 ```
 
 Com a feature `nfe-sha1`, a CLI também aceita `emitir-nfe`, `consultar-nfe` e `danfe-nfe`. A saída humana é o padrão; use `--json` para JSON.
@@ -221,6 +250,8 @@ O servidor expõe ferramentas `preparar_*` e `confirmar_*` em **duas fases**:
 1. `preparar_*` valida e persiste a operação **sem enviar**, e devolve um token de uso único com validade de 300 segundos (ajustável em `CARIMBAR_MCP_TTL_SEGUNDOS`).
 2. `confirmar_*` consome o token e envia a operação.
 
+`preparar_emissao` aceita `dps_xml` ou um objeto `pedido` com `prestador`, `servico`, `descricao`, `valor_centavos` e `tomador`; no segundo caso a DPS é montada e numerada pelo carimbar, e `idempotencia` preserva a mesma nota quando o pedido se repete.
+
 Importação de certificado, promoção de produção e segredos ficam exclusivamente na CLI, fora do alcance do agente.
 
 ## Segurança e produção
@@ -256,6 +287,8 @@ O acompanhamento central está na [issue #4](https://github.com/seatrunk/carimba
 
 - [Plano de implementação do MVP](docs/plano-mvp.md)
 - [Contratos fiscais, arquitetura e limites](docs/contratos-fiscais.md)
+- [Quem pode usar](docs/quem-pode-usar.md)
+- [Rejeições comuns e o que fazer](docs/rejeicoes.md)
 - [Release e publicação](docs/release.md)
 - [Homologação manual protegida](docs/homologacao.md)
 

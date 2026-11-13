@@ -164,6 +164,24 @@ impl RegimeTributario {
             regime_especial: RegimeEspecialTributacao::Nenhum,
         }
     }
+
+    /// MEI, sem regime especial.
+    pub fn mei() -> Self {
+        Self {
+            op_simples_nacional: OpSimplesNacional::Mei,
+            regime_apuracao: None,
+            regime_especial: RegimeEspecialTributacao::Nenhum,
+        }
+    }
+
+    /// ME/EPP com o regime de apuração informado.
+    pub fn me_epp(apuracao: RegimeApuracaoSimples) -> Self {
+        Self {
+            op_simples_nacional: OpSimplesNacional::MeEpp,
+            regime_apuracao: Some(apuracao),
+            regime_especial: RegimeEspecialTributacao::Nenhum,
+        }
+    }
 }
 
 /// Prestador de serviços.
@@ -323,12 +341,35 @@ pub struct TributoMunicipal {
 }
 
 /// Total aproximado de tributos.
+///
+/// O regime do prestador define qual forma é aceita pelas regras de negócio:
+/// MEI usa [`TotalTributos::IndicadorZero`] (E0712), ME/EPP usa
+/// [`TotalTributos::PercentualSimplesNacional`] e não optante usa
+/// [`TotalTributos::Valores`] ou [`TotalTributos::Percentuais`] (E0713).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TotalTributos {
-    /// `indTotTrib = 0`.
+    /// `indTotTrib = 0`, aceito para MEI.
     IndicadorZero,
-    /// `pTotTribSN` para optante do Simples Nacional.
+    /// `pTotTribSN` para optante ME/EPP do Simples Nacional.
     PercentualSimplesNacional(Decimal),
+    /// `vTotTrib` com os valores aproximados por esfera.
+    Valores {
+        /// Tributos federais.
+        federal: Dinheiro,
+        /// Tributos estaduais.
+        estadual: Dinheiro,
+        /// Tributos municipais.
+        municipal: Dinheiro,
+    },
+    /// `pTotTrib` com os percentuais aproximados por esfera.
+    Percentuais {
+        /// Percentual federal, até 2 casas.
+        federal: Decimal,
+        /// Percentual estadual, até 2 casas.
+        estadual: Decimal,
+        /// Percentual municipal, até 2 casas.
+        municipal: Decimal,
+    },
 }
 
 /// Valores do serviço e tributação.
@@ -438,6 +479,9 @@ impl Dps {
     /// Valida os campos que não são garantidos pelos tipos.
     pub fn validar(&self) -> Result<(), ErroNfse> {
         self.id()?;
+        // A DPS deste crate é sempre enviada pela API do Emissor Nacional; a
+        // regra E0010 restringe a série a 1..=49999.
+        self.serie.validar_api()?;
         exigir_texto("verAplic", &self.ver_aplic, 1, 20)?;
         validar_prestador(&self.prestador)?;
         if let Some(tomador) = &self.tomador {
@@ -483,7 +527,7 @@ impl Dps {
             ));
         }
         validar_servico(&self.servico)?;
-        validar_valores(&self.valores)?;
+        validar_valores(&self.prestador.regime, &self.valores)?;
         if let Some(ibs_cbs) = &self.ibs_cbs {
             validar_ibs_cbs(ibs_cbs)?;
         }
@@ -698,6 +742,29 @@ fn montar_tributos(valores: &Valores) -> Elemento {
         TotalTributos::PercentualSimplesNacional(percentual) => el("totTrib").com_filho(
             No::Elemento(txt("pTotTribSN", formatar_decimal(percentual))),
         ),
+        TotalTributos::Valores {
+            federal,
+            estadual,
+            municipal,
+        } => el("totTrib").com_filho(No::Elemento(
+            el("vTotTrib")
+                .com_filho(No::Elemento(txt("vTotTribFed", federal.para_xml())))
+                .com_filho(No::Elemento(txt("vTotTribEst", estadual.para_xml())))
+                .com_filho(No::Elemento(txt("vTotTribMun", municipal.para_xml()))),
+        )),
+        TotalTributos::Percentuais {
+            federal,
+            estadual,
+            municipal,
+        } => el("totTrib").com_filho(No::Elemento(
+            el("pTotTrib")
+                .com_filho(No::Elemento(txt("pTotTribFed", formatar_decimal(federal))))
+                .com_filho(No::Elemento(txt("pTotTribEst", formatar_decimal(estadual))))
+                .com_filho(No::Elemento(txt(
+                    "pTotTribMun",
+                    formatar_decimal(municipal),
+                ))),
+        )),
     };
     el("trib")
         .com_filho(No::Elemento(municipal))
@@ -736,7 +803,7 @@ fn validar_prestador(prestador: &Prestador) -> Result<(), ErroNfse> {
         exigir_texto("prest/xNome", nome, 1, 300)?;
     }
     if let Some(email) = &prestador.email {
-        exigir_texto("prest/email", email, 1, 80)?;
+        validar_email("prest/email", email)?;
     }
     if prestador.regime.regime_apuracao.is_some()
         && prestador.regime.op_simples_nacional != OpSimplesNacional::MeEpp
@@ -757,7 +824,54 @@ fn validar_pessoa(campo: &'static str, pessoa: &Pessoa) -> Result<(), ErroNfse> 
         exigir_texto("xNome", nome, 1, 300)?;
     }
     if let Some(email) = &pessoa.email {
-        exigir_texto("email", email, 1, 80)?;
+        validar_email("email", email)?;
+    }
+    Ok(())
+}
+
+/// Valida o formato do e-mail antes do envio (E0247).
+///
+/// A regra do leiaute limita o campo a 80 caracteres. Não há DNS nem
+/// verificação de caixa: apenas forma, um único `@` e um domínio com rótulos
+/// válidos e ponto.
+fn validar_email(campo: &'static str, email: &str) -> Result<(), ErroNfse> {
+    exigir_texto(campo, email, 1, 80)?;
+    let mut partes = email.split('@');
+    let local = partes.next().unwrap_or_default();
+    let dominio = partes.next().unwrap_or_default();
+    if partes.next().is_some() || local.is_empty() || dominio.is_empty() {
+        return Err(ErroNfse::campo(
+            campo,
+            format!("e-mail inválido (E0247): {email:?}"),
+        ));
+    }
+    let local_valido = local.len() <= 64
+        && !local.starts_with('.')
+        && !local.ends_with('.')
+        && !local.contains("..")
+        && local
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'%' | b'+' | b'-'));
+    let rotulos: Vec<&str> = dominio.split('.').collect();
+    let dominio_valido = dominio.len() <= 255
+        && rotulos.len() >= 2
+        && rotulos.iter().all(|rotulo| {
+            !rotulo.is_empty()
+                && rotulo.len() <= 63
+                && !rotulo.starts_with('-')
+                && !rotulo.ends_with('-')
+                && rotulo
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+        && rotulos
+            .last()
+            .is_some_and(|tld| tld.len() >= 2 && tld.bytes().all(|b| b.is_ascii_alphabetic()));
+    if !local_valido || !dominio_valido {
+        return Err(ErroNfse::campo(
+            campo,
+            format!("e-mail inválido (E0247): {email:?}"),
+        ));
     }
     Ok(())
 }
@@ -799,7 +913,7 @@ fn validar_servico(servico: &Servico) -> Result<(), ErroNfse> {
     Ok(())
 }
 
-fn validar_valores(valores: &Valores) -> Result<(), ErroNfse> {
+fn validar_valores(regime: &RegimeTributario, valores: &Valores) -> Result<(), ErroNfse> {
     validar_dinheiro("valores/vServPrest/vServ", valores.valor_servico)?;
     if let Some(valor) = valores.valor_recebido {
         validar_dinheiro("valores/vServPrest/vReceb", valor)?;
@@ -818,14 +932,79 @@ fn validar_valores(valores: &Valores) -> Result<(), ErroNfse> {
             "percentual entre 0 e 9,99 com até 2 casas",
         ));
     }
-    if let TotalTributos::PercentualSimplesNacional(percentual) = valores.total_tributos
-        && (percentual.is_sign_negative()
-            || percentual.scale() > 2
-            || percentual > Decimal::new(9999, 2))
-    {
+    validar_total_tributos(regime, valores.total_tributos)?;
+    Ok(())
+}
+
+/// Cruza o grupo `totTrib` com o regime do prestador.
+///
+/// E0712: `indTotTrib` é aceito para MEI, e `pTotTribSN` para ME/EPP.
+/// E0713: empresa fora do Simples não envia nenhum dos dois; usa os valores ou
+/// percentuais detalhados.
+fn validar_total_tributos(regime: &RegimeTributario, total: TotalTributos) -> Result<(), ErroNfse> {
+    match (regime.op_simples_nacional, total) {
+        (OpSimplesNacional::Mei, TotalTributos::IndicadorZero) => Ok(()),
+        (OpSimplesNacional::MeEpp, TotalTributos::PercentualSimplesNacional(percentual)) => {
+            if percentual.is_sign_negative()
+                || percentual.scale() > 2
+                || percentual > Decimal::new(9999, 2)
+            {
+                return Err(ErroNfse::campo(
+                    "valores/trib/totTrib/pTotTribSN",
+                    "percentual entre 0 e 99,99 com até 2 casas",
+                ));
+            }
+            Ok(())
+        }
+        (
+            OpSimplesNacional::NaoOptante,
+            TotalTributos::Valores {
+                federal,
+                estadual,
+                municipal,
+            },
+        ) => {
+            validar_dinheiro("valores/trib/totTrib/vTotTrib/vTotTribFed", federal)?;
+            validar_dinheiro("valores/trib/totTrib/vTotTrib/vTotTribEst", estadual)?;
+            validar_dinheiro("valores/trib/totTrib/vTotTrib/vTotTribMun", municipal)?;
+            Ok(())
+        }
+        (
+            OpSimplesNacional::NaoOptante,
+            TotalTributos::Percentuais {
+                federal,
+                estadual,
+                municipal,
+            },
+        ) => {
+            validar_percentual("valores/trib/totTrib/pTotTrib/pTotTribFed", federal)?;
+            validar_percentual("valores/trib/totTrib/pTotTrib/pTotTribEst", estadual)?;
+            validar_percentual("valores/trib/totTrib/pTotTrib/pTotTribMun", municipal)?;
+            Ok(())
+        }
+        (OpSimplesNacional::Mei, _) => Err(ErroNfse::campo(
+            "valores/trib/totTrib",
+            "MEI deve informar indTotTrib = 0 (E0712)",
+        )),
+        (OpSimplesNacional::MeEpp, _) => Err(ErroNfse::campo(
+            "valores/trib/totTrib",
+            "ME/EPP deve informar pTotTribSN (E0712)",
+        )),
+        (OpSimplesNacional::NaoOptante, TotalTributos::IndicadorZero)
+        | (OpSimplesNacional::NaoOptante, TotalTributos::PercentualSimplesNacional(_)) => {
+            Err(ErroNfse::campo(
+                "valores/trib/totTrib",
+                "fora do Simples não pode informar indTotTrib nem pTotTribSN (E0713); use vTotTrib ou pTotTrib",
+            ))
+        }
+    }
+}
+
+fn validar_percentual(campo: &'static str, valor: Decimal) -> Result<(), ErroNfse> {
+    if valor.is_sign_negative() || valor.scale() > 2 || valor > Decimal::new(10_000, 2) {
         return Err(ErroNfse::campo(
-            "valores/trib/totTrib/pTotTribSN",
-            "percentual entre 0 e 99,99 com até 2 casas",
+            campo,
+            "percentual entre 0 e 100 com até 2 casas",
         ));
     }
     Ok(())
@@ -910,5 +1089,156 @@ pub(crate) fn formatar_decimal(valor: Decimal) -> String {
 impl fmt::Display for TipoEmitente {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.codigo())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nfse::identificadores::CodigoMunicipio;
+
+    fn dps(regime: RegimeTributario, total: TotalTributos) -> Dps {
+        Dps {
+            ambiente: TpAmb::Homologacao,
+            dh_emi: DataHoraFiscal::parse("2026-11-13T12:00:00+00:00").expect("dhEmi"),
+            ver_aplic: "carimbar-teste".to_owned(),
+            serie: SerieDps::new(1).expect("série"),
+            numero: NumeroDps::new(1).expect("número"),
+            d_compet: DataFiscal::parse("2026-11-13").expect("dCompet"),
+            tp_emit: TipoEmitente::Prestador,
+            c_motivo_emis_ti: None,
+            ch_nfse_rej: None,
+            c_loc_emi: CodigoMunicipio::new("3550308").expect("município"),
+            substituicao: None,
+            prestador: Prestador {
+                inscricao: InscricaoFederal::parse("00000001000136").expect("CNPJ"),
+                inscricao_municipal: None,
+                nome: None,
+                email: None,
+                regime,
+            },
+            tomador: None,
+            intermediario: None,
+            servico: Servico {
+                local_prestacao: LocalPrestacao::Municipio(
+                    CodigoMunicipio::new("3550308").expect("município"),
+                ),
+                codigo_tributacao_nacional: "010101".to_owned(),
+                codigo_tributacao_municipal: None,
+                codigo_nbs: None,
+                codigo_interno: None,
+                descricao: "Serviço sintético".to_owned(),
+                informacoes_complementares: None,
+            },
+            valores: Valores {
+                valor_recebido: None,
+                valor_servico: "10.00".parse::<Dinheiro>().expect("valor"),
+                desconto_incondicional: None,
+                desconto_condicional: None,
+                tributo_municipal: TributoMunicipal {
+                    trib_issqn: TribIssqn::Tributavel,
+                    tipo_retencao: TipoRetencaoIssqn::NaoRetido,
+                    aliquota: None,
+                },
+                total_tributos: total,
+            },
+            ibs_cbs: None,
+        }
+    }
+
+    #[test]
+    fn mei_aceita_somente_indicador_zero() {
+        assert!(
+            dps(RegimeTributario::mei(), TotalTributos::IndicadorZero)
+                .validar()
+                .is_ok()
+        );
+        let erro = dps(
+            RegimeTributario::mei(),
+            TotalTributos::PercentualSimplesNacional(Decimal::new(600, 2)),
+        )
+        .validar()
+        .expect_err("E0712");
+        assert!(erro.to_string().contains("E0712"));
+    }
+
+    #[test]
+    fn me_epp_aceita_somente_percentual_simples() {
+        assert!(
+            dps(
+                RegimeTributario::me_epp(RegimeApuracaoSimples::SimplesNacional),
+                TotalTributos::PercentualSimplesNacional(Decimal::new(600, 2)),
+            )
+            .validar()
+            .is_ok()
+        );
+        let erro = dps(
+            RegimeTributario::me_epp(RegimeApuracaoSimples::SimplesNacional),
+            TotalTributos::IndicadorZero,
+        )
+        .validar()
+        .expect_err("E0712");
+        assert!(erro.to_string().contains("E0712"));
+    }
+
+    #[test]
+    fn nao_optante_aceita_total_detalhado_e_recusa_indicador() {
+        let detalhado = dps(
+            RegimeTributario::nao_optante(),
+            TotalTributos::Valores {
+                federal: "0.10".parse().expect("federal"),
+                estadual: "0.00".parse().expect("estadual"),
+                municipal: "0.20".parse().expect("municipal"),
+            },
+        );
+        let xml = detalhado.para_xml().expect("XML");
+        assert!(xml.contains("<vTotTrib>"));
+        assert!(xml.contains("<vTotTribMun>0.20</vTotTribMun>"));
+
+        let erro = dps(
+            RegimeTributario::nao_optante(),
+            TotalTributos::IndicadorZero,
+        )
+        .validar()
+        .expect_err("E0713");
+        assert!(erro.to_string().contains("E0713"));
+    }
+
+    #[test]
+    fn percentuais_detalhados_saem_com_duas_casas() {
+        let dps = dps(
+            RegimeTributario::nao_optante(),
+            TotalTributos::Percentuais {
+                federal: Decimal::new(165, 2),
+                estadual: Decimal::ZERO,
+                municipal: Decimal::new(200, 2),
+            },
+        );
+        let xml = dps.para_xml().expect("XML");
+        assert!(xml.contains("<pTotTribFed>1.65</pTotTribFed>"));
+        assert!(xml.contains("<pTotTribMun>2.00</pTotTribMun>"));
+    }
+
+    #[test]
+    fn serie_fora_da_faixa_da_api_e_recusada() {
+        let mut dps = dps(RegimeTributario::mei(), TotalTributos::IndicadorZero);
+        dps.serie = SerieDps::new(50_000).expect("schema");
+        let erro = dps.validar().expect_err("E0010");
+        assert!(erro.to_string().contains("1 a 49999"));
+    }
+
+    #[test]
+    fn email_do_tomador_e_validado() {
+        let mut dps = dps(RegimeTributario::mei(), TotalTributos::IndicadorZero);
+        dps.tomador = Some(Pessoa {
+            inscricao: InscricaoFederal::parse("52998224725").expect("CPF"),
+            inscricao_municipal: None,
+            nome: Some("Cliente".to_owned()),
+            email: Some("cliente@exemplo.com".to_owned()),
+        });
+        assert!(dps.validar().is_ok());
+        dps.tomador.as_mut().expect("tomador").email = Some("cliente@invalido".to_owned());
+        let erro = dps.validar().expect_err("E0247");
+        assert!(erro.to_string().contains("E0247"));
     }
 }

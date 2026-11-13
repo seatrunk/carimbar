@@ -51,7 +51,7 @@ fn dps(ambiente: TpAmb) -> Dps {
             inscricao_municipal: None,
             nome: Some("Empresa Sintetica".to_owned()),
             email: None,
-            regime: RegimeTributario::nao_optante(),
+            regime: RegimeTributario::mei(),
         },
         tomador: None,
         intermediario: None,

@@ -402,7 +402,10 @@ sem duplicar regras entre CLI, MCP e Python.
 - **Idempotência:** chave única por empresa, ambiente, tipo e Id da DPS. Mesmo
   conteúdo devolve a operação existente; conteúdo diferente retorna
   `ConflitoIdempotencia`. O journal também guarda XML preparado, XML enviado,
-  XML autorizado, chave e protocolo.
+  XML autorizado, chave e protocolo. Uma chave do cliente (por exemplo, o id da
+  venda) pode ser vinculada à operação; repetir a chave devolve a mesma
+  operação e, após uma rejeição, permite repreparar o mesmo número ou migrar a
+  chave para o próximo número (E0014).
 - **Resultado desconhecido:** uma falha depois do início da escrita persiste o
   estado `desconhecida`; `reconciliar_nfse` consulta `GET /dps/{id}` e, se
   houver NFS-e, busca `GET /nfse/{chave}`. Só depois de uma reconciliação que
@@ -470,9 +473,10 @@ parametrização municipal; a fachada persiste o cursor e os documentos.
 
 O binário `carimbar` reutiliza a fachada e o cofre; não duplica regras fiscais.
 
-- **Comandos:** `empresa importar/listar/promover/rebaixar`, `emitir`,
-  `consultar`, `cancelar`, `danfse`, `adn sincronizar/documentos` e
-  `parametros convenio/aliquota/retencoes`.
+- **Comandos:** `empresa importar/listar/promover/rebaixar`,
+  `emitir --dps|--pedido`, `consultar`, `cancelar`, `danfse`,
+  `adn sincronizar/documentos`, `parametros convenio/aliquota/retencoes` e
+  `diagnostico`.
 - **Segredos:** senha do PFX em `CARIMBAR_SENHA_PFX`; KEK em `CARIMBAR_KEK`
   (64 hex). Nenhum dos dois é aceito em argumento.
 - **Saída:** humana por padrão ou JSON com `--json`. Códigos estáveis: `2` uso,
@@ -500,7 +504,8 @@ O binário `carimbar` reutiliza a fachada e o cofre; não duplica regras fiscais
   `estado_operacao`.
 - **Duas fases:** `preparar_*` valida e persiste a operação na fachada, sem
   enviar, e devolve um token. O token carrega empresa, ambiente e o conteúdo
-  exato; `confirmar_*` só aceita aquele conteúdo.
+  exato; `confirmar_*` só aceita aquele conteúdo. `preparar_emissao` aceita
+  `dps_xml` ou um `pedido` simples com bloco `prestador` e `idempotencia`.
 - **Token:** uso único, TTL padrão de 300 s (`CARIMBAR_MCP_TTL_SEGUNDOS`),
   removido antes da execução. Reiniciar o processo invalida tokens pendentes.
 - **Produção:** além do kill switch, `confirmar_*` exige
@@ -571,8 +576,9 @@ O binário `carimbar` reutiliza a fachada e o cofre; não duplica regras fiscais
 O pacote `carimbar` no PyPI é construído pelo maturin sobre `carimbar-py`.
 
 - **API:** `Cofre` (importar/listar/remover/rotação/auditoria), `Emissor`
-  (promover/rebaixar, preparar/emitir/confirmar, consultar, cancelar, DANFSe,
-  ADN, parâmetros e estado) e `Dinheiro`.
+  (promover/rebaixar, preparar/emitir/confirmar, `preparar_pedido`/
+  `emitir_pedido`, consultar, cancelar, DANFSe, ADN, parâmetros e estado) e
+  `Dinheiro`.
 - **Dinheiro:** entra e sai como texto; `Dinheiro(float)` é recusado pelo
   binding. Somas usam `Decimal`/`Dinheiro`, sem conversão por `float`.
 - **Erros:** `ErroValidacao`, `ErroFiscal`, `ErroTransporte`, `ErroProducao`,
@@ -587,6 +593,41 @@ O pacote `carimbar` no PyPI é construído pelo maturin sobre `carimbar-py`.
   sdist inclui `python/**` e `tests/*.py`.
 - **Limites:** a API é síncrona; replay e raízes de confiança são
   responsabilidade do chamador.
+
+## 6.13 Pedido simples, numeração e diagnóstico (#47)
+
+`carimbar::nfse::PedidoEmissao` monta a DPS a partir de um JSON com prestador,
+serviço, descrição, valor e tomador. A CLI (`emitir --pedido`), o MCP
+(`preparar_emissao` com `pedido`) e o Python (`emitir_pedido`) usam o mesmo
+parser e a mesma fachada.
+
+- **Prestador:** `municipio` (código IBGE), `serie`, `inscricao_municipal`,
+  `nome`, `email`, `simples` (1 não optante, 2 MEI, 3 ME/EPP), `apuracao`,
+  `regime_especial` e `percentual_simples_nacional`. A CLI aceita o bloco no
+  pedido ou em `--prestador`/`CARIMBAR_PRESTADOR`.
+- **Pedido:** `servico` (6 dígitos), `descricao`, `valor_centavos` ou `valor` em
+  texto, `competencia` opcional, `tomador`, `codigo_tributacao_municipal`,
+  `codigo_nbs`, `codigo_interno`, `aliquota`, `trib_issqn`, `retencao_issqn` e
+  `total_tributos`.
+- **Regras locais:** série de 1 a 49999 (E0010); MEI usa `indTotTrib = 0`,
+  ME/EPP usa `pTotTribSN` e não optante usa `vTotTrib`/`pTotTrib` (E0712/E0713);
+  e-mail é validado (E0247). Valores fiscais nunca passam por `float`.
+- **Numeração:** o journal reserva o próximo número por empresa, ambiente e
+  série, em transação. O E0014 faz `confirmar_pedido` liberar a chave do
+  cliente, reservar o próximo número e tentar de novo, até cinco vezes.
+- **Idempotência:** a chave do cliente (`id`) devolve a operação existente sem
+  novo envio. Uma operação rejeitada pode ser repreparada com o mesmo número;
+  se o número mudou, a chave migra para a nova operação e a rejeitada permanece
+  no histórico.
+- **`dhEmi`:** o pedido gera a data 60 segundos atrás do relógio do sistema, em
+  UTC (`+00:00`), para evitar E0008 por relógio adiantado.
+- **Diagnóstico:** `carimbar diagnostico` verifica certificado (validade e
+  CNPJ), kill switch e, com `--municipio`, o convênio municipal. Sai com código
+  diferente de zero quando alguma verificação falha.
+- **Limites:** o construtor não cobre endereço, telefone, obra, evento,
+  comércio exterior, benefícios e os grupos detalhados de IBS/CBS; para esses
+  casos, envie a DPS em XML. O MCP guarda o pedido em memória até a confirmação;
+  reiniciar o servidor invalida o token.
 
 ## 7. Decisões em aberto
 

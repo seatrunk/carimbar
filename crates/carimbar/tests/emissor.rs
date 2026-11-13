@@ -3,8 +3,8 @@
 
 use carimbar::nfse::{
     ChaveNfse, CodigoMunicipio, DataFiscal, DataHoraFiscal, Dps, Executor, InscricaoFederal,
-    LocalPrestacao, NumeroDps, Prestador, RegimeTributario, SerieDps, Servico, TipoEmitente,
-    TipoRetencaoIssqn, TotalTributos, TribIssqn, TributoMunicipal, Valores,
+    LocalPrestacao, NumeroDps, PedidoEmissao, Prestador, RegimeTributario, SerieDps, Servico,
+    TipoEmitente, TipoRetencaoIssqn, TotalTributos, TribIssqn, TributoMunicipal, Valores,
 };
 use carimbar::transport::{ErroEnvio, ErroTransporte, Requisicao, Resposta};
 use carimbar::types::{Cnpj, ConfirmacaoProducao, Dinheiro, TpAmb};
@@ -115,7 +115,7 @@ fn dps(ambiente: TpAmb) -> Dps {
             inscricao_municipal: None,
             nome: Some("Empresa Sintetica".to_owned()),
             email: None,
-            regime: RegimeTributario::nao_optante(),
+            regime: RegimeTributario::mei(),
         },
         tomador: None,
         intermediario: None,
@@ -489,6 +489,104 @@ fn confirmacao_de_producao_fica_vinculada_ao_cnpj() {
         erro,
         carimbar::ErroEmissor::ConfirmacaoDivergente(_)
     ));
+}
+
+fn pedido_simples(idempotencia: Option<&str>) -> PedidoEmissao {
+    let mut valor = serde_json::json!({
+        "prestador": {"municipio": MUNICIPIO, "simples": 2},
+        "servico": "010101",
+        "descricao": "Servico sintetico de teste",
+        "valor_centavos": 1000
+    });
+    if let Some(idempotencia) = idempotencia {
+        valor["id"] = serde_json::Value::String(idempotencia.to_owned());
+    }
+    PedidoEmissao::de_json(&valor).expect("pedido")
+}
+
+fn corpo_autorizacao_do_numero(numero: u64) -> Vec<u8> {
+    let dps = pedido_simples(None)
+        .montar(
+            &empresa(),
+            TpAmb::Homologacao,
+            NumeroDps::new(numero).expect("número"),
+            DataHoraFiscal::parse("2026-11-08T10:00:00-03:00").expect("dhEmi"),
+        )
+        .expect("DPS");
+    let id = dps.id().expect("Id");
+    serde_json::json!({
+        "idDps": id.as_str(),
+        "chaveAcesso": chave_sintetica(TpAmb::Homologacao).as_str(),
+        "nfseXmlGZipB64": carimbar::nfse::comprimir_b64("<NFSe/>").expect("comprime"),
+        "dataHoraProcessamento": "2026-11-08T10:00:01-03:00",
+        "alertas": []
+    })
+    .to_string()
+    .into_bytes()
+}
+
+#[test]
+fn pedido_simples_numera_idempotencia_e_nao_reenvia() {
+    let pki = pki("pedido-idempotente");
+    let empresa = empresa();
+    let cofre = cofre_com_certificado(&empresa, &pki);
+    let journal = Journal::em_memoria().expect("journal");
+    let executor = ExecutorFalso::com(vec![Ok(resposta(201, corpo_autorizacao_do_numero(1)))]);
+    let mut emissor = Emissor::novo(cofre, journal, empresa, &executor).expect("emissor");
+    let pedido = pedido_simples(Some("venda-1"));
+
+    let primeira = emissor.executar_pedido(&pedido).expect("emissão");
+    assert!(matches!(primeira, ResultadoNfse::Autorizada { .. }));
+    assert_eq!(executor.pedidos().len(), 1);
+
+    let repetida = emissor.executar_pedido(&pedido).expect("repetição");
+    assert!(matches!(repetida, ResultadoNfse::Autorizada { .. }));
+    assert_eq!(executor.pedidos().len(), 1, "não pode haver segundo envio");
+    assert_eq!(
+        emissor
+            .journal()
+            .total_operacoes(&empresa, TpAmb::Homologacao)
+            .expect("total"),
+        1
+    );
+}
+
+#[test]
+fn e0014_avanca_para_o_proximo_numero() {
+    let pki = pki("pedido-e0014");
+    let empresa = empresa();
+    let cofre = cofre_com_certificado(&empresa, &pki);
+    let journal = Journal::em_memoria().expect("journal");
+    let rejeicao = serde_json::json!({
+        "idDps": "qualquer",
+        "erros": [{"codigo": "E0014", "descricao": "número já utilizado"}]
+    })
+    .to_string()
+    .into_bytes();
+    let executor = ExecutorFalso::com(vec![
+        Ok(resposta(400, rejeicao)),
+        Ok(resposta(201, corpo_autorizacao_do_numero(2))),
+    ]);
+    let mut emissor = Emissor::novo(cofre, journal, empresa, &executor).expect("emissor");
+
+    let resultado = emissor
+        .executar_pedido(&pedido_simples(Some("venda-e0014")))
+        .expect("emissão");
+    assert!(matches!(resultado, ResultadoNfse::Autorizada { .. }));
+    assert_eq!(executor.pedidos().len(), 2, "reenviou uma única vez");
+    assert_eq!(
+        emissor
+            .journal()
+            .total_operacoes(&empresa, TpAmb::Homologacao)
+            .expect("total"),
+        2
+    );
+    let primeira = emissor.journal().operacao(1).expect("primeira");
+    let segunda = emissor.journal().operacao(2).expect("segunda");
+    assert!(primeira.chave_operacao.ends_with("000000000000001"));
+    assert!(segunda.chave_operacao.ends_with("000000000000002"));
+    assert_eq!(primeira.chave_cliente, None);
+    assert_eq!(segunda.chave_cliente.as_deref(), Some("venda-e0014"));
 }
 
 #[test]

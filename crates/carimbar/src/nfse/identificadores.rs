@@ -149,7 +149,16 @@ impl SerieDps {
     /// Maior série aceita pelo schema (`TSSerieDPS`).
     pub const MAXIMA: u32 = 89_999;
 
-    /// Valida a série.
+    /// Maior série aceita na emissão pela API do Emissor Nacional.
+    ///
+    /// A regra E0010 reserva a faixa de 1 a 49999 para a API; o schema aceita
+    /// até 89999, mas valores acima da faixa e a série zero são rejeitados.
+    pub const MAXIMA_API: u32 = 49_999;
+
+    /// Valida a série apenas contra o schema (`0..=89999`).
+    ///
+    /// Para emissão pela API use [`SerieDps::new_api`] ou
+    /// [`SerieDps::validar_api`].
     pub fn new(valor: u32) -> Result<Self, ErroNfse> {
         if valor > Self::MAXIMA {
             return Err(ErroNfse::campo(
@@ -158,6 +167,27 @@ impl SerieDps {
             ));
         }
         Ok(Self(valor))
+    }
+
+    /// Valida a série para emissão pela API (`1..=49999`, regra E0010).
+    pub fn new_api(valor: u32) -> Result<Self, ErroNfse> {
+        Self::new(valor)?.validar_api()?;
+        Ok(Self(valor))
+    }
+
+    /// Confere a faixa aceita pela API: `1..=49999` (regra E0010).
+    pub fn validar_api(self) -> Result<(), ErroNfse> {
+        if !(1..=Self::MAXIMA_API).contains(&self.0) {
+            return Err(ErroNfse::campo(
+                "serie",
+                format!(
+                    "a API aceita série de 1 a {}; recebido {}",
+                    Self::MAXIMA_API,
+                    self.0
+                ),
+            ));
+        }
+        Ok(())
     }
 
     /// Valor numérico.
@@ -288,6 +318,24 @@ impl IdDps {
     /// Texto do Id.
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Série embutida no Id.
+    pub fn serie(&self) -> Result<SerieDps, ErroNfse> {
+        let corpo = &self.0["DPS".len()..];
+        let valor: u32 = corpo[22..27]
+            .parse()
+            .map_err(|_| ErroNfse::campo("IdDPS", "série não numérica"))?;
+        SerieDps::new(valor)
+    }
+
+    /// Número embutido no Id.
+    pub fn numero(&self) -> Result<NumeroDps, ErroNfse> {
+        let corpo = &self.0["DPS".len()..];
+        let valor: u64 = corpo[27..42]
+            .parse()
+            .map_err(|_| ErroNfse::campo("IdDPS", "número não numérico"))?;
+        NumeroDps::new(valor)
     }
 }
 
@@ -434,5 +482,30 @@ mod tests {
         assert!(InscricaoFederal::parse("52998224725").is_ok());
         assert!(InscricaoFederal::parse("52998224724").is_err());
         assert!(InscricaoFederal::parse("11111111111").is_err());
+    }
+
+    #[test]
+    fn serie_da_api_fica_entre_1_e_49999() {
+        assert!(SerieDps::new_api(1).is_ok());
+        assert!(SerieDps::new_api(49_999).is_ok());
+        assert!(SerieDps::new_api(0).is_err());
+        assert!(SerieDps::new_api(50_000).is_err());
+        assert!(SerieDps::new_api(89_999).is_err());
+        // O schema continua aceitando a faixa completa.
+        assert!(SerieDps::new(89_999).is_ok());
+    }
+
+    #[test]
+    fn id_expoe_serie_e_numero() {
+        let id = IdDps::gerar(
+            &municipio(),
+            &cnpj(),
+            SerieDps::new(7).expect("série"),
+            NumeroDps::new(42).expect("número"),
+            TpAmb::Homologacao,
+        )
+        .expect("Id");
+        assert_eq!(id.serie().expect("série").get(), 7);
+        assert_eq!(id.numero().expect("número").get(), 42);
     }
 }

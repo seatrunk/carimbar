@@ -1,5 +1,23 @@
 # Changelog
 
+## Não publicado
+
+- NFS-e por pedido simples: `carimbar emitir --pedido`, `Emissor::executar_pedido` e
+  `emitir_pedido` no Python e no MCP montam e numeram a DPS a partir de serviço,
+  descrição, valor e tomador.
+- Numeração automática da DPS por empresa, ambiente e série no journal, com
+  avanço para o próximo número quando a Sefin responde E0014.
+- Idempotência pela chave do cliente (por exemplo, o id da venda), com
+  reaproveitamento da operação e do número após uma rejeição.
+- `dhEmi` gerado 60 segundos atrás do relógio local.
+- Validações antes do envio: série de 1 a 49999 (E0010), `totTrib` compatível
+  com o regime (E0712/E0713), `TotalTributos` detalhado (`vTotTrib` e
+  `pTotTrib`) e e-mail do prestador/tomador/intermediário (E0247).
+- `carimbar diagnostico` confere certificado, kill switch e convênio municipal.
+- Documentação de [quem pode usar](docs/quem-pode-usar.md) e
+  [rejeições comuns](docs/rejeicoes.md).
+- Teste com PKCS#12 legado (RC2/3DES) confirma que o certificado A1 antigo abre.
+
 ## 0.0.3
 
 - Primeira versão no PyPI (pacote `carimbar`: wheels abi3 para Python ≥ 3.9 e sdist).
