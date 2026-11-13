@@ -7,6 +7,7 @@
 
 use crate::nfse::erro::ErroNfse;
 use std::fmt;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Data no formato `AAAA-MM-DD` usada em `dCompet`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -51,6 +52,25 @@ impl DataFiscal {
             u16::try_from(ano).map_err(|_| ErroNfse::campo("data", "ano inválido"))?,
             u8::try_from(mes).map_err(|_| ErroNfse::campo("data", "mês inválido"))?,
             u8::try_from(dia).map_err(|_| ErroNfse::campo("data", "dia inválido"))?,
+        )
+    }
+
+    /// Data de hoje em UTC, recuada em `defasagem_segundos`.
+    ///
+    /// Usada por padrão em `dCompet` quando o pedido não informa a competência.
+    pub fn hoje_utc(defasagem_segundos: u64) -> Result<Self, ErroNfse> {
+        Self::de_unix(segundos_atuais()?.saturating_sub(defasagem_segundos))
+    }
+
+    /// Converte segundos desde `1970-01-01T00:00:00Z` em uma data UTC.
+    pub fn de_unix(segundos: u64) -> Result<Self, ErroNfse> {
+        let dias = i64::try_from(segundos / 86_400)
+            .map_err(|_| ErroNfse::campo("data", "instante acima do intervalo"))?;
+        let (ano, mes, dia) = data_de_dias(dias);
+        Self::new(
+            u16::try_from(ano).map_err(|_| ErroNfse::campo("data", "ano fora do intervalo"))?,
+            u8::try_from(mes).map_err(|_| ErroNfse::campo("data", "mês fora do intervalo"))?,
+            u8::try_from(dia).map_err(|_| ErroNfse::campo("data", "dia fora do intervalo"))?,
         )
     }
 
@@ -177,6 +197,34 @@ impl DataHoraFiscal {
     pub fn data(&self) -> DataFiscal {
         self.data
     }
+
+    /// Relógio do sistema em UTC (`+00:00`), recuado em `defasagem_segundos`.
+    ///
+    /// Emitir com alguns segundos de folga evita que `dhEmi` fique à frente do
+    /// relógio do governo. A defasagem padrão usada pela fachada é de 60 s.
+    pub fn agora_utc(defasagem_segundos: u64) -> Result<Self, ErroNfse> {
+        Self::de_unix(segundos_atuais()?.saturating_sub(defasagem_segundos))
+    }
+
+    /// Converte segundos desde `1970-01-01T00:00:00Z` em data/hora UTC.
+    pub fn de_unix(segundos: u64) -> Result<Self, ErroNfse> {
+        let dias = i64::try_from(segundos / 86_400)
+            .map_err(|_| ErroNfse::campo("dhEmi", "instante acima do intervalo"))?;
+        let (ano, mes, dia) = data_de_dias(dias);
+        let resto = segundos % 86_400;
+        let hora = u8::try_from(resto / 3_600)
+            .map_err(|_| ErroNfse::campo("dhEmi", "hora fora do intervalo"))?;
+        let minuto = u8::try_from((resto % 3_600) / 60)
+            .map_err(|_| ErroNfse::campo("dhEmi", "minuto fora do intervalo"))?;
+        let segundo = u8::try_from(resto % 60)
+            .map_err(|_| ErroNfse::campo("dhEmi", "segundo fora do intervalo"))?;
+        let data = DataFiscal::new(
+            u16::try_from(ano).map_err(|_| ErroNfse::campo("dhEmi", "ano fora do intervalo"))?,
+            u8::try_from(mes).map_err(|_| ErroNfse::campo("dhEmi", "mês fora do intervalo"))?,
+            u8::try_from(dia).map_err(|_| ErroNfse::campo("dhEmi", "dia fora do intervalo"))?,
+        )?;
+        Self::new(data, hora, minuto, segundo, '+', 0)
+    }
 }
 
 impl fmt::Display for DataHoraFiscal {
@@ -215,6 +263,30 @@ fn bissexto(ano: u16) -> bool {
     (ano.is_multiple_of(4) && !ano.is_multiple_of(100)) || ano.is_multiple_of(400)
 }
 
+fn segundos_atuais() -> Result<u64, ErroNfse> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| ErroNfse::campo("relógio", "instante anterior à época"))?
+        .as_secs())
+}
+
+/// Converte dias desde 1970-01-01 em ano, mês e dia do calendário gregoriano.
+///
+/// Algoritmo `civil_from_days` de Howard Hinnant, sem dependência de crate de
+/// calendário e sem fuso: a entrada é sempre UTC.
+fn data_de_dias(dias: i64) -> (i64, u32, u32) {
+    let z = dias + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let ano = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let dia = doy - (153 * mp + 2) / 5 + 1;
+    let mes = if mp < 10 { mp + 3 } else { mp - 9 };
+    (if mes <= 2 { ano + 1 } else { ano }, mes as u32, dia as u32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,5 +316,52 @@ mod tests {
         assert!(DataHoraFiscal::parse("2026-11-08T10:00:00-03:30").is_err());
         assert!(DataHoraFiscal::parse("2026-11-08T24:00:00-03:00").is_err());
         assert!(DataHoraFiscal::parse("2026-11-08 10:00:00-03:00").is_err());
+    }
+
+    #[test]
+    fn converte_unix_para_data_e_hora_utc() {
+        let dh = DataHoraFiscal::de_unix(1_794_573_296).expect("instante");
+        assert_eq!(dh.to_string(), "2026-11-13T12:34:56+00:00");
+        assert_eq!(
+            DataHoraFiscal::de_unix(1_709_164_800)
+                .expect("bissexto")
+                .to_string(),
+            "2024-02-29T00:00:00+00:00"
+        );
+        assert_eq!(
+            DataHoraFiscal::de_unix(1_772_323_199)
+                .expect("véspera de março")
+                .to_string(),
+            "2026-02-28T23:59:59+00:00"
+        );
+    }
+
+    #[test]
+    fn data_unix_acompanha_a_virada_do_dia() {
+        assert_eq!(
+            DataFiscal::de_unix(1_794_528_000)
+                .expect("meia-noite")
+                .to_string(),
+            "2026-11-13"
+        );
+        assert_eq!(
+            DataFiscal::de_unix(1_794_614_399)
+                .expect("último segundo")
+                .to_string(),
+            "2026-11-13"
+        );
+        assert_eq!(
+            DataFiscal::de_unix(1_794_614_400)
+                .expect("dia seguinte")
+                .to_string(),
+            "2026-11-14"
+        );
+    }
+
+    #[test]
+    fn relogio_recua_pela_defasagem() {
+        let agora = DataHoraFiscal::agora_utc(60).expect("relógio");
+        let sem_defasagem = DataHoraFiscal::agora_utc(0).expect("relógio");
+        assert!(agora <= sem_defasagem);
     }
 }

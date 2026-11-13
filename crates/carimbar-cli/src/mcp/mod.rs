@@ -13,7 +13,7 @@ use base64::Engine;
 use carimbar::ResultadoNfe;
 use carimbar::nfse::{
     Aliquota, ChaveNfse, ConsultaAliquotas, DataHoraFiscal, EventoCancelamento, Executor,
-    InscricaoFederal, MotivoCancelamento, ParametrosConvenio,
+    InscricaoFederal, MotivoCancelamento, ParametrosConvenio, PedidoEmissao,
 };
 use carimbar::transport::{ClienteMtls, ErroEnvio, ErroTransporte, Opcoes, Requisicao, Resposta};
 use carimbar::types::{ChaveAcesso, Cnpj, TpAmb};
@@ -110,6 +110,10 @@ fn ler_kek() -> Result<[u8; 32], String> {
 #[derive(Debug, Clone)]
 enum Payload {
     Emissao(String),
+    Pedido {
+        pedido: Box<PedidoEmissao>,
+        operacao: i64,
+    },
     EmissaoNfe(String),
     Cancelamento(EventoCancelamento),
 }
@@ -307,8 +311,16 @@ fn ler_raizes(diretorio: Option<&Path>) -> Result<Vec<Vec<u8>>, String> {
 struct PrepararEmissaoReq {
     #[schemars(description = "CNPJ da empresa")]
     empresa: String,
-    #[schemars(description = "XML da DPS, assinado ou não")]
-    dps_xml: String,
+    #[schemars(description = "XML da DPS, assinado ou não. Alternativo a pedido.")]
+    dps_xml: Option<String>,
+    #[schemars(
+        description = "Pedido simples (serviço, descrição, valor, tomador) com bloco prestador; a DPS é montada e numerada pelo carimbar"
+    )]
+    pedido: Option<Value>,
+    #[schemars(description = "Configuração do prestador quando ausente no pedido")]
+    prestador: Option<Value>,
+    #[schemars(description = "Chave de idempotência do cliente (por exemplo, o id da venda)")]
+    idempotencia: Option<String>,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -402,25 +414,57 @@ struct GerarDanfeNfeReq {
 impl ServidorCarimbar {
     /// Prepara uma emissão de NFS-e sem enviar.
     #[tool(
-        description = "Prepara uma DPS para emissão e devolve um token de uso único. Não envia à Sefin."
+        description = "Prepara uma emissão (DPS em XML ou pedido simples) e devolve um token de uso único. Não envia à Sefin."
     )]
     fn preparar_emissao(
         &self,
         Parameters(req): Parameters<PrepararEmissaoReq>,
     ) -> Result<Json<Value>, String> {
         let empresa = parse_empresa(&req.empresa)?;
-        let dps_xml = req.dps_xml;
-        let (operacao, estado, ambiente) = self.com_emissor(empresa, |emissor| {
-            let preparada = emissor.preparar_nfse_xml(&dps_xml)?;
-            Ok((
-                preparada.id(),
-                preparada.estado(),
-                emissor.ambiente().tp_amb(),
-            ))
-        })?;
-        let token = self
-            .preparacoes
-            .inserir(empresa, ambiente, Payload::Emissao(dps_xml));
+        let dps_xml = req.dps_xml.filter(|xml| !xml.trim().is_empty());
+        let pedido = req.pedido.filter(|valor| !valor.is_null());
+        let prestador = req.prestador.filter(|valor| !valor.is_null());
+        let (operacao, estado, ambiente, payload) = match (dps_xml, pedido) {
+            (Some(dps_xml), None) => {
+                let (operacao, estado, ambiente) = self.com_emissor(empresa, |emissor| {
+                    let preparada = emissor.preparar_nfse_xml(&dps_xml)?;
+                    Ok((
+                        preparada.id(),
+                        preparada.estado(),
+                        emissor.ambiente().tp_amb(),
+                    ))
+                })?;
+                (operacao, estado, ambiente, Payload::Emissao(dps_xml))
+            }
+            (None, Some(valor)) => {
+                let mut pedido = PedidoEmissao::de_json_com_prestador(&valor, prestador.as_ref())
+                    .map_err(|erro| erro.to_string())?;
+                if let Some(idempotencia) = req.idempotencia {
+                    pedido.idempotencia = Some(idempotencia);
+                }
+                let (operacao, estado, ambiente) = self.com_emissor(empresa, |emissor| {
+                    let preparada = emissor.preparar_pedido(&pedido)?;
+                    Ok((
+                        preparada.id(),
+                        preparada.estado(),
+                        emissor.ambiente().tp_amb(),
+                    ))
+                })?;
+                (
+                    operacao,
+                    estado,
+                    ambiente,
+                    Payload::Pedido {
+                        pedido: Box::new(pedido),
+                        operacao,
+                    },
+                )
+            }
+            _ => {
+                return Err("informe exatamente um de dps_xml ou pedido".to_owned());
+            }
+        };
+        let token = self.preparacoes.inserir(empresa, ambiente, payload);
         Ok(Json(json!({
             "token": token,
             "operacao": operacao,
@@ -440,15 +484,20 @@ impl ServidorCarimbar {
         Parameters(req): Parameters<ConfirmarEmissaoReq>,
     ) -> Result<Json<Value>, String> {
         let preparacao = self.preparacoes.conferir(&req.token)?;
-        let Payload::Emissao(dps_xml) = preparacao.payload.clone() else {
-            return Err("token não é de emissão".to_owned());
-        };
+        let payload = preparacao.payload.clone();
         exigir_confirmacao_producao(preparacao.ambiente, req.confirmar_producao)?;
         let preparacao = self.preparacoes.retirar(&req.token)?;
-        let resultado = self.com_emissor(preparacao.empresa, |emissor| {
-            let preparada = emissor.preparar_nfse_xml(&dps_xml)?;
-            emissor.confirmar_nfse(preparada.id())
-        })?;
+        let resultado = match payload {
+            Payload::Emissao(dps_xml) => self.com_emissor(preparacao.empresa, |emissor| {
+                let preparada = emissor.preparar_nfse_xml(&dps_xml)?;
+                emissor.confirmar_nfse(preparada.id())
+            })?,
+            Payload::Pedido { pedido, operacao } => self
+                .com_emissor(preparacao.empresa, |emissor| {
+                    emissor.confirmar_pedido(&pedido, operacao)
+                })?,
+            _ => return Err("token não é de emissão".to_owned()),
+        };
         Ok(Json(resultado_nfse(&resultado)))
     }
 
@@ -1154,7 +1203,10 @@ mod tests {
         let preparada = servidor
             .preparar_emissao(Parameters(PrepararEmissaoReq {
                 empresa: CNPJ.to_owned(),
-                dps_xml: dps_xml(2),
+                dps_xml: Some(dps_xml(2)),
+                pedido: None,
+                prestador: None,
+                idempotencia: None,
             }))
             .expect("prepara");
         let token = preparada.0["token"].as_str().expect("token").to_owned();
@@ -1196,13 +1248,48 @@ mod tests {
     }
 
     #[test]
+    fn prepara_pedido_simples_e_confirma_com_replay() {
+        let (config, _dir) = cenario(
+            "pedido-simples",
+            TpAmb::Homologacao,
+            Arc::new(KillSwitchFixo(true)),
+        );
+        let servidor = ServidorCarimbar::novo(config);
+        let preparada = servidor
+            .preparar_emissao(Parameters(PrepararEmissaoReq {
+                empresa: CNPJ.to_owned(),
+                dps_xml: None,
+                pedido: Some(json!({
+                    "prestador": {"municipio": "3550308", "simples": 2},
+                    "servico": "010101",
+                    "descricao": "Servico sintetico",
+                    "valor_centavos": 1000
+                })),
+                prestador: None,
+                idempotencia: Some("venda-1".to_owned()),
+            }))
+            .expect("prepara pedido");
+        let token = preparada.0["token"].as_str().expect("token").to_owned();
+        let resultado = servidor
+            .confirmar_emissao(Parameters(ConfirmarEmissaoReq {
+                token,
+                confirmar_producao: None,
+            }))
+            .expect("confirma pedido");
+        assert_eq!(resultado.0["estado"], "autorizada");
+    }
+
+    #[test]
     fn producao_exige_confirmacao_humana() {
         let (config, _dir) = cenario("producao", TpAmb::Producao, Arc::new(KillSwitchFixo(true)));
         let servidor = ServidorCarimbar::novo(config);
         let preparada = servidor
             .preparar_emissao(Parameters(PrepararEmissaoReq {
                 empresa: CNPJ.to_owned(),
-                dps_xml: dps_xml(1),
+                dps_xml: Some(dps_xml(1)),
+                pedido: None,
+                prestador: None,
+                idempotencia: None,
             }))
             .expect("prepara");
         let token = preparada.0["token"].as_str().expect("token").to_owned();
@@ -1230,7 +1317,10 @@ mod tests {
         let preparada = servidor
             .preparar_emissao(Parameters(PrepararEmissaoReq {
                 empresa: CNPJ.to_owned(),
-                dps_xml: dps_xml(1),
+                dps_xml: Some(dps_xml(1)),
+                pedido: None,
+                prestador: None,
+                idempotencia: None,
             }))
             .expect("prepara");
         let token = preparada.0["token"].as_str().expect("token").to_owned();

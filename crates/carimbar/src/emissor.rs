@@ -23,9 +23,10 @@ use crate::journal::{EstadoOperacao, Journal, Operacao, TipoOperacao, hash_conte
 #[cfg(feature = "nfe-sha1")]
 use crate::nfe::{ClienteNfe, Contingencia, ResultadoAutorizacao};
 use crate::nfse::{
-    CacheParametros, ChaveNfse, ClienteAdn, ClienteParametros, ClienteSefin, Dps, ErroFiscal,
-    EventoCancelamento, Executor, IdDps, LoteDistribuicao, ParametrosConvenio, Rejeicao,
-    ResultadoEmissao, ResultadoEvento, StatusDistribuicao,
+    CacheParametros, ChaveNfse, ClienteAdn, ClienteParametros, ClienteSefin, DataHoraFiscal, Dps,
+    ErroFiscal, EventoCancelamento, Executor, IdDps, LoteDistribuicao, NumeroDps,
+    ParametrosConvenio, PedidoEmissao, Rejeicao, ResultadoEmissao, ResultadoEvento,
+    StatusDistribuicao,
 };
 use crate::types::{Ambiente, ChaveAcesso, Cnpj, ConfirmacaoProducao, ModeloDocumento, TpAmb};
 use crate::vault::{Cofre, MetadadosCertificado};
@@ -337,27 +338,7 @@ impl<'a> Emissor<'a> {
     /// Não assina nem envia. A operação fica persistida no estado
     /// `preparada`; repetir com o mesmo conteúdo devolve a operação existente.
     pub fn preparar_nfse(&mut self, dps: &Dps) -> Result<OperacaoPreparada, ErroEmissor> {
-        let ambiente = self.ambiente().tp_amb();
-        if dps.ambiente != ambiente {
-            return Err(ErroEmissor::Divergencia { campo: "dps.tpAmb" });
-        }
-        if dps.prestador.inscricao.cnpj() != Some(&self.empresa) {
-            return Err(ErroEmissor::Divergencia {
-                campo: "dps.prestador.inscricao",
-            });
-        }
-        let xml = dps.para_xml()?;
-        let chave = dps.id()?;
-        let hash = hash_conteudo(&xml);
-        let (operacao, nova) = self.journal.criar(
-            &self.empresa,
-            ambiente,
-            TipoOperacao::EmitirNfse,
-            chave.as_str(),
-            &hash,
-            &xml,
-        )?;
-        Ok(OperacaoPreparada { operacao, nova })
+        self.preparar_nfse_com_chave(dps, None)
     }
 
     /// Prepara uma DPS já serializada em XML.
@@ -411,6 +392,134 @@ impl<'a> Emissor<'a> {
             xml,
         )?;
         Ok(OperacaoPreparada { operacao, nova })
+    }
+
+    /// Prepara uma DPS vinculada a uma chave de idempotência do cliente.
+    ///
+    /// Repetir com a mesma chave e o mesmo conteúdo devolve a operação
+    /// existente. Uma operação rejeitada pode ser repreparada com o mesmo
+    /// número; se o número mudou (E0014), a chave é transferida para a nova
+    /// operação.
+    pub fn preparar_nfse_com_chave(
+        &mut self,
+        dps: &Dps,
+        chave_cliente: Option<&str>,
+    ) -> Result<OperacaoPreparada, ErroEmissor> {
+        let ambiente = self.ambiente().tp_amb();
+        if dps.ambiente != ambiente {
+            return Err(ErroEmissor::Divergencia { campo: "dps.tpAmb" });
+        }
+        if dps.prestador.inscricao.cnpj() != Some(&self.empresa) {
+            return Err(ErroEmissor::Divergencia {
+                campo: "dps.prestador.inscricao",
+            });
+        }
+        let xml = dps.para_xml()?;
+        let chave = dps.id()?;
+        let hash = hash_conteudo(&xml);
+        let (operacao, nova) = self.journal.criar_com_chave_cliente(
+            &self.empresa,
+            ambiente,
+            TipoOperacao::EmitirNfse,
+            chave.as_str(),
+            chave_cliente,
+            &hash,
+            &xml,
+        )?;
+        Ok(OperacaoPreparada { operacao, nova })
+    }
+
+    /// Reserva o próximo número da DPS para a série.
+    pub fn reservar_numero_nfse(&mut self, serie: u32) -> Result<u64, ErroEmissor> {
+        let ambiente = self.ambiente().tp_amb();
+        self.journal
+            .reservar_numero_nfse(&self.empresa, ambiente, serie)
+    }
+
+    /// Prepara um pedido simples, numerando a DPS automaticamente.
+    ///
+    /// O prestador vem do próprio pedido (ou de uma configuração separada,
+    /// conforme a interface). `dhEmi` é gerado 60 segundos atrás do relógio.
+    pub fn preparar_pedido(
+        &mut self,
+        pedido: &PedidoEmissao,
+    ) -> Result<OperacaoPreparada, ErroEmissor> {
+        let ambiente = self.ambiente().tp_amb();
+        let chave_cliente = pedido.idempotencia.as_deref();
+        let existente = match chave_cliente {
+            Some(chave) => self.journal.operacao_por_chave_cliente(
+                &self.empresa,
+                ambiente,
+                TipoOperacao::EmitirNfse,
+                chave,
+            )?,
+            None => None,
+        };
+        if let Some(operacao) = &existente
+            && !estado_repetivel(operacao.estado)
+        {
+            return Ok(OperacaoPreparada {
+                operacao: operacao.clone(),
+                nova: false,
+            });
+        }
+        let numero = match &existente {
+            Some(operacao) if rejeicao_e0014(operacao) => {
+                self.journal.liberar_chave_cliente(operacao.id)?;
+                self.reservar_numero_nfse(pedido.serie()?.get())?
+            }
+            Some(operacao) => numero_da_operacao(operacao)?,
+            None => self.reservar_numero_nfse(pedido.serie()?.get())?,
+        };
+        let dh_emi = DataHoraFiscal::agora_utc(PedidoEmissao::DEFASAGEM_DH_EMI_SEGUNDOS)?;
+        let dps = pedido.montar(&self.empresa, ambiente, NumeroDps::new(numero)?, dh_emi)?;
+        self.preparar_nfse_com_chave(&dps, chave_cliente)
+    }
+
+    /// Confirma um pedido e, se a Sefin responder E0014, tenta os próximos
+    /// números da série até o limite.
+    pub fn confirmar_pedido(
+        &mut self,
+        pedido: &PedidoEmissao,
+        operacao: i64,
+    ) -> Result<ResultadoNfse, ErroEmissor> {
+        const MAX_TENTATIVAS: usize = 5;
+        let mut atual = operacao;
+        for tentativa in 1..=MAX_TENTATIVAS {
+            let resultado = self.confirmar_nfse(atual)?;
+            let avancar = match &resultado {
+                ResultadoNfse::Rejeitada { erros, .. } => {
+                    erros.iter().any(|erro| erro.codigo == "E0014")
+                        || self
+                            .journal
+                            .operacao(atual)
+                            .ok()
+                            .is_some_and(|operacao| rejeicao_e0014(&operacao))
+                }
+                _ => false,
+            };
+            if !avancar || tentativa == MAX_TENTATIVAS {
+                return Ok(resultado);
+            }
+            self.journal.liberar_chave_cliente(atual)?;
+            let ambiente = self.ambiente().tp_amb();
+            let numero = self.reservar_numero_nfse(pedido.serie()?.get())?;
+            let dh_emi = DataHoraFiscal::agora_utc(PedidoEmissao::DEFASAGEM_DH_EMI_SEGUNDOS)?;
+            let dps = pedido.montar(&self.empresa, ambiente, NumeroDps::new(numero)?, dh_emi)?;
+            atual = self
+                .preparar_nfse_com_chave(&dps, pedido.idempotencia.as_deref())?
+                .id();
+        }
+        unreachable!("o laço sempre retorna na última tentativa")
+    }
+
+    /// Prepara e confirma um pedido simples.
+    pub fn executar_pedido(
+        &mut self,
+        pedido: &PedidoEmissao,
+    ) -> Result<ResultadoNfse, ErroEmissor> {
+        let preparada = self.preparar_pedido(pedido)?;
+        self.confirmar_pedido(pedido, preparada.id())
     }
 
     /// Confirma a operação, assinando e enviando no máximo uma vez.
@@ -1233,6 +1342,27 @@ fn validar_lote(lote: &LoteDistribuicao) -> Result<(), ErroEmissor> {
         )));
     }
     Ok(())
+}
+
+fn estado_repetivel(estado: EstadoOperacao) -> bool {
+    matches!(
+        estado,
+        EstadoOperacao::Rejeitada
+            | EstadoOperacao::FalhaAntesDoEnvio
+            | EstadoOperacao::NaoEncontrada
+    )
+}
+
+fn rejeicao_e0014(operacao: &Operacao) -> bool {
+    operacao
+        .erro
+        .as_deref()
+        .is_some_and(|erro| erro.contains("E0014"))
+}
+
+fn numero_da_operacao(operacao: &Operacao) -> Result<u64, ErroEmissor> {
+    let id = IdDps::parse(&operacao.chave_operacao, operacao.ambiente)?;
+    Ok(id.numero()?.get())
 }
 
 fn formatar_rejeicao(rejeicao: &Rejeicao) -> String {

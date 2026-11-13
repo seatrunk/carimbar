@@ -214,6 +214,93 @@ fn fluxo_de_emissao_simulado_produz_xml_e_pdf() {
 }
 
 #[test]
+fn fluxo_de_emissao_por_pedido_simulado_e_idempotente() {
+    let dir = diretorio("pedido");
+    preparar_empresa(&dir);
+    let prestador = json!({
+        "municipio": "3550308",
+        "simples": 2
+    });
+    std::fs::write(dir.join("prestador.json"), prestador.to_string()).expect("prestador");
+    let pedido = json!({
+        "id": "venda-1",
+        "servico": "010101",
+        "descricao": "Servico sintetico",
+        "valor_centavos": 1000
+    });
+    std::fs::write(dir.join("pedido.json"), pedido.to_string()).expect("pedido");
+    let corpo = json!({
+        "idDps": ID_DPS,
+        "chaveAcesso": chave(),
+        "nfseXmlGZipB64": comprimir_b64(&nfse_xml()).expect("gzip"),
+        "dataHoraProcessamento": "2026-11-09T10:00:00-03:00",
+        "alertas": []
+    })
+    .to_string();
+    let replay = json!({
+        "respostas": [{"url_contem": "/nfse", "status": 201, "corpo": corpo}]
+    });
+    std::fs::write(dir.join("replay.json"), replay.to_string()).expect("replay");
+
+    let args = [
+        "--empresa",
+        CNPJ,
+        "--json",
+        "emitir",
+        "--pedido",
+        "pedido.json",
+        "--prestador",
+        "prestador.json",
+        "--replay",
+        "replay.json",
+    ];
+    let saida = rodar(&mut comando(&dir, &args));
+    assert!(
+        saida.status.success(),
+        "emitir por pedido: stderr={} stdout={}",
+        String::from_utf8_lossy(&saida.stderr),
+        String::from_utf8_lossy(&saida.stdout)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&saida.stdout).expect("JSON");
+    assert_eq!(json["estado"], "autorizada");
+
+    // A segunda chamada devolve a mesma operação sem consumir outra resposta.
+    let repetida = rodar(&mut comando(&dir, &args));
+    assert!(
+        repetida.status.success(),
+        "repetição: {}",
+        String::from_utf8_lossy(&repetida.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&repetida.stdout).expect("JSON");
+    assert_eq!(json["estado"], "autorizada");
+}
+
+#[test]
+fn diagnostico_sem_certificado_falha_e_com_certificado_passa() {
+    let dir = diretorio("diagnostico");
+    let sem_certificado = rodar(&mut comando(
+        &dir,
+        &["--empresa", CNPJ, "--json", "diagnostico"],
+    ));
+    assert_eq!(sem_certificado.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&sem_certificado.stderr).contains("diagnóstico"));
+
+    preparar_empresa(&dir);
+    let com_certificado = rodar(&mut comando(
+        &dir,
+        &["--empresa", CNPJ, "--json", "diagnostico"],
+    ));
+    assert!(
+        com_certificado.status.success(),
+        "diagnóstico: stderr={}",
+        String::from_utf8_lossy(&com_certificado.stderr)
+    );
+    let json: serde_json::Value = serde_json::from_slice(&com_certificado.stdout).expect("JSON");
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["certificado"]["titular"], CNPJ);
+}
+
+#[test]
 fn kill_switch_bloqueia_promocao_de_producao() {
     let dir = diretorio("producao");
     preparar_empresa(&dir);

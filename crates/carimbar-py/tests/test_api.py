@@ -152,6 +152,44 @@ def test_nfse_com_replay_gera_pdf(tmp_path):
     assert pdf.startswith(b"%PDF")
 
 
+def test_pedido_simples_com_replay_e_idempotencia(tmp_path):
+    criar_cofre(tmp_path)
+    emissor = carimbar.Emissor.com_replay(
+        str(tmp_path / "cofre.db"),
+        str(tmp_path / "journal.db"),
+        CNPJ,
+        KEK,
+        str(replay_nfse(tmp_path)),
+    )
+    prestador = {"municipio": "3550308", "simples": 2}
+    pedido = {
+        "servico": "010101",
+        "descricao": "Servico sintetico",
+        "valor_centavos": 1000,
+    }
+    primeira = emissor.emitir_pedido(pedido, prestador, idempotencia="venda-1")
+    assert primeira["estado"] == "autorizada"
+    repetida = emissor.emitir_pedido(pedido, prestador, idempotencia="venda-1")
+    assert repetida["estado"] == "autorizada"
+    assert repetida["chave"] == primeira["chave"]
+
+
+def test_pedido_recusa_float_em_valor_fiscal(tmp_path):
+    criar_cofre(tmp_path)
+    emissor = carimbar.Emissor.com_replay(
+        str(tmp_path / "cofre.db"),
+        str(tmp_path / "journal.db"),
+        CNPJ,
+        KEK,
+        str(replay_nfse(tmp_path)),
+    )
+    with pytest.raises(carimbar.ErroValidacao):
+        emissor.emitir_pedido(
+            {"servico": "010101", "descricao": "Servico", "valor": 10.0},
+            {"municipio": "3550308", "simples": 2},
+        )
+
+
 def test_nfe_com_replay_gera_danfe(tmp_path):
     criar_cofre(tmp_path)
     emissor = carimbar.Emissor.com_replay(

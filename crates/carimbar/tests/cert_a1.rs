@@ -106,6 +106,30 @@ fn exportar(dir: &Path, chave: &Path, cert: &Path) -> Vec<u8> {
     std::fs::read(pfx).expect("lê o PKCS#12 gerado")
 }
 
+/// Exporta com as cifras legadas (RC2/3DES), comuns em A1 antigos.
+fn exportar_legado(dir: &Path, chave: &Path, cert: &Path) -> Vec<u8> {
+    let pfx = dir.join("a1-legado.p12");
+    openssl(
+        &[
+            "pkcs12",
+            "-export",
+            "-legacy",
+            "-in",
+            cert.to_str().expect("utf-8"),
+            "-inkey",
+            chave.to_str().expect("utf-8"),
+            "-out",
+            pfx.to_str().expect("utf-8"),
+            "-passout",
+            "env:CARIMBAR_SENHA_TESTE",
+            "-name",
+            "a1",
+        ],
+        &[("CARIMBAR_SENHA_TESTE", SENHA)],
+    );
+    std::fs::read(pfx).expect("lê o PKCS#12 legado")
+}
+
 /// PKCS#12 A1 sintético com CNPJ no SAN (chave RSA 2048).
 fn a1(nome: &str, cnpj_no_san: Option<&str>, dias: u32) -> Vec<u8> {
     let dir = diretorio(nome);
@@ -136,6 +160,25 @@ fn abre_a1_valido_e_vincula_titular_ao_cnpj() {
     assert_eq!(certificado.cnpj().as_str(), CNPJ_TITULAR);
     assert!(certificado.valido_ate() > agora());
     assert!(!certificado.certificado_der().is_empty());
+}
+
+#[test]
+fn abre_pkcs12_legado_com_rc2_e_3des() {
+    let dir = diretorio("legado");
+    let (chave, cert) = gerar_par(
+        &dir,
+        &Opcoes {
+            nome: "legado",
+            cnpj_no_san: Some(CNPJ_TITULAR),
+            dias: 3650,
+            chave: Chave::Rsa,
+        },
+    );
+    let pfx = exportar_legado(&dir, &chave, &cert);
+    let certificado =
+        CertificadoA1::abrir(&pfx, SENHA, &cnpj(CNPJ_TITULAR)).expect("abre PFX legado");
+    assert_eq!(certificado.cnpj().as_str(), CNPJ_TITULAR);
+    assert!(certificado.valido_ate() > agora());
 }
 
 #[test]

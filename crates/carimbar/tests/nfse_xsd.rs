@@ -62,7 +62,7 @@ fn dps(ambiente: TpAmb) -> Dps {
             inscricao_municipal: None,
             nome: None,
             email: None,
-            regime: RegimeTributario::nao_optante(),
+            regime: RegimeTributario::mei(),
         },
         tomador: None,
         intermediario: None,
@@ -117,6 +117,30 @@ fn dps_de_homologacao_passa_no_xsd_restrito_sem_e_com_assinatura() {
         .para_xml_assinado(&AssinanteFalso)
         .expect("assinada");
     carimbar::xml::xsd::validar(assinada.as_bytes(), &schema).expect("DPS assinada");
+}
+
+#[test]
+fn tot_trib_detalhado_passa_no_xsd_restrito() {
+    let schema = esquema("nfse_v1.01_20261020", "DPS_v1.01.xsd");
+    let mut com_valores = dps(TpAmb::Homologacao);
+    com_valores.prestador.regime = RegimeTributario::nao_optante();
+    com_valores.valores.total_tributos = TotalTributos::Valores {
+        federal: "0.10".parse::<Dinheiro>().expect("federal"),
+        estadual: "0.00".parse::<Dinheiro>().expect("estadual"),
+        municipal: "0.20".parse::<Dinheiro>().expect("municipal"),
+    };
+    carimbar::xml::xsd::validar(com_valores.para_xml().expect("XML").as_bytes(), &schema)
+        .expect("vTotTrib");
+
+    let mut com_percentuais = dps(TpAmb::Homologacao);
+    com_percentuais.prestador.regime = RegimeTributario::nao_optante();
+    com_percentuais.valores.total_tributos = TotalTributos::Percentuais {
+        federal: rust_decimal::Decimal::new(165, 2),
+        estadual: rust_decimal::Decimal::ZERO,
+        municipal: rust_decimal::Decimal::new(200, 2),
+    };
+    carimbar::xml::xsd::validar(com_percentuais.para_xml().expect("XML").as_bytes(), &schema)
+        .expect("pTotTrib");
 }
 
 #[test]

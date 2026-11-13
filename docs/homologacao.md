@@ -48,7 +48,8 @@ ambiente de teste e ao certificado. Não use dados de produção.
 O script executa:
 
 - importação e listagem do certificado;
-- `emitir` (NFS-e) com XML autorizado e DANFSe;
+- `diagnostico` do certificado, do kill switch e do convênio municipal;
+- `emitir` (NFS-e) com XML autorizado e DANFSe, por `--dps` ou `--pedido`;
 - `consultar` da NFS-e emitida;
 - cancelamento, se `CARIMBAR_CANCELAR_CHAVE` estiver definido;
 - `emitir-nfe` e `danfe-nfe`, quando o modelo inclui NF-e;

@@ -6,7 +6,9 @@
 #[cfg(feature = "nfe-sha1")]
 use carimbar::ResultadoNfe;
 use carimbar::nfe::ErroNfe as ErroNfeModelo;
-use carimbar::nfse::{ChaveNfse, ErroNfse, EventoCancelamento, Executor, MotivoCancelamento};
+use carimbar::nfse::{
+    ChaveNfse, ErroNfse, EventoCancelamento, Executor, MotivoCancelamento, PedidoEmissao,
+};
 use carimbar::transport::{ClienteMtls, ErroEnvio, ErroTransporte, Opcoes, Requisicao, Resposta};
 use carimbar::types::{ChaveAcesso, Cnpj, Dinheiro, TpAmb};
 use carimbar::vault::{ChaveMestra, Cofre};
@@ -14,7 +16,7 @@ use carimbar::{Emissor, ErroEmissor, Journal, ResultadoNfse};
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict};
+use pyo3::types::{PyBool, PyBytes, PyDict, PyList};
 use serde_json::Value;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -91,6 +93,66 @@ fn kek(texto: &str) -> PyResult<[u8; 32]> {
 
 fn cnpj(texto: &str) -> PyResult<Cnpj> {
     Cnpj::parse(texto).map_err(|erro| ErroValidacao::new_err(erro.to_string()))
+}
+
+/// Converte `dict`/`list`/escalares do Python para JSON, sem passar valores
+/// fiscais por `float`.
+fn py_para_json(valor: &Bound<'_, PyAny>) -> PyResult<Value> {
+    if valor.is_none() {
+        return Ok(Value::Null);
+    }
+    if let Ok(booleano) = valor.cast::<PyBool>() {
+        return Ok(Value::Bool(booleano.is_true()));
+    }
+    if let Ok(texto) = valor.extract::<String>() {
+        return Ok(Value::String(texto));
+    }
+    if let Ok(numero) = valor.extract::<i64>() {
+        return Ok(Value::from(numero));
+    }
+    if valor.extract::<f64>().is_ok() {
+        return Err(ErroValidacao::new_err(
+            "use texto para valores decimais; float não é aceito em campo fiscal",
+        ));
+    }
+    if let Ok(dicionario) = valor.cast::<PyDict>() {
+        let mut objeto = serde_json::Map::new();
+        for (chave, item) in dicionario.iter() {
+            let chave: String = chave
+                .extract()
+                .map_err(|_| ErroValidacao::new_err("chaves do pedido devem ser texto"))?;
+            objeto.insert(chave, py_para_json(&item)?);
+        }
+        return Ok(Value::Object(objeto));
+    }
+    if let Ok(lista) = valor.cast::<PyList>() {
+        let mut itens = Vec::new();
+        for item in lista.iter() {
+            itens.push(py_para_json(&item)?);
+        }
+        return Ok(Value::Array(itens));
+    }
+    Err(ErroValidacao::new_err(
+        "tipo não suportado no pedido; use dict, list, texto, inteiro ou booleano",
+    ))
+}
+
+fn montar_pedido(
+    pedido: &Bound<'_, PyAny>,
+    prestador: Option<&Bound<'_, PyAny>>,
+    idempotencia: Option<String>,
+) -> PyResult<PedidoEmissao> {
+    let valor = py_para_json(pedido)?;
+    let prestador_json = match prestador {
+        Some(valor) if !valor.is_none() => Some(py_para_json(valor)?),
+        _ => None,
+    };
+    let mut pedido = PedidoEmissao::de_json_com_prestador(&valor, prestador_json.as_ref())
+        .map_err(|erro| ErroValidacao::new_err(erro.to_string()))?;
+    if let Some(idempotencia) = idempotencia {
+        pedido.idempotencia = Some(idempotencia);
+    }
+    Ok(pedido)
 }
 
 fn abrir_cofre(caminho: &Path, chave: [u8; 32]) -> Result<Cofre, carimbar::vault::ErroCofre> {
@@ -381,6 +443,54 @@ impl EmissorPy {
         dict.set_item("operacao", operacao)?;
         dict.set_item("estado", estado)?;
         Ok(dict.unbind())
+    }
+
+    #[pyo3(signature = (pedido, prestador=None, idempotencia=None))]
+    fn preparar_pedido(
+        &self,
+        py: Python<'_>,
+        pedido: &Bound<'_, PyAny>,
+        prestador: Option<&Bound<'_, PyAny>>,
+        idempotencia: Option<String>,
+    ) -> PyResult<Py<PyDict>> {
+        let pedido = montar_pedido(pedido, prestador, idempotencia)?;
+        let config = self.config.clone();
+        let (operacao, estado) = py
+            .detach(move || {
+                executar_com_config(&config, |emissor| {
+                    let preparada = emissor.preparar_pedido(&pedido)?;
+                    Ok((preparada.id(), preparada.estado().as_str()))
+                })
+            })
+            .map_err(erro_py)?;
+        let dict = PyDict::new(py);
+        dict.set_item("operacao", operacao)?;
+        dict.set_item("estado", estado)?;
+        Ok(dict.unbind())
+    }
+
+    #[pyo3(signature = (pedido, prestador=None, idempotencia=None, confirmar_producao=false))]
+    fn emitir_pedido(
+        &self,
+        py: Python<'_>,
+        pedido: &Bound<'_, PyAny>,
+        prestador: Option<&Bound<'_, PyAny>>,
+        idempotencia: Option<String>,
+        confirmar_producao: bool,
+    ) -> PyResult<Py<PyDict>> {
+        let pedido = montar_pedido(pedido, prestador, idempotencia)?;
+        let config = self.config.clone();
+        let resultado = py
+            .detach(move || {
+                executar_com_config(&config, |emissor| {
+                    if emissor.ambiente().eh_producao() && !confirmar_producao {
+                        return Err(ErroEmissor::ProducaoBloqueada);
+                    }
+                    emissor.executar_pedido(&pedido)
+                })
+            })
+            .map_err(erro_py)?;
+        resultado_nfse(py, resultado)
     }
 
     #[pyo3(signature = (dps_xml, confirmar_producao=false))]

@@ -127,6 +127,9 @@ pub struct Operacao {
     pub tipo: TipoOperacao,
     /// Chave de idempotência (Id da DPS ou Id do pedido de evento).
     pub chave_operacao: String,
+    /// Chave de idempotência escolhida pelo cliente (por exemplo, o id da
+    /// venda), quando houver.
+    pub chave_cliente: Option<String>,
     /// SHA-256 do XML preparado, em hexadecimal.
     pub hash_conteudo: String,
     /// Estado atual.
@@ -205,6 +208,7 @@ impl Journal {
                  ambiente TEXT NOT NULL CHECK (ambiente IN ('producao','homologacao')),
                  tipo TEXT NOT NULL,
                  chave_operacao TEXT NOT NULL,
+                 chave_cliente TEXT,
                  hash_conteudo TEXT NOT NULL,
                  estado TEXT NOT NULL,
                  xml_preparado TEXT NOT NULL,
@@ -246,6 +250,21 @@ impl Journal {
                  criado_em INTEGER NOT NULL,
                  PRIMARY KEY (empresa, ambiente, nsu)
              );",
+        )?;
+        // Migração de journals criados antes da chave de idempotência do
+        // cliente. `CREATE TABLE IF NOT EXISTS` não adiciona colunas.
+        let tem_chave_cliente: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('operacoes') WHERE name = 'chave_cliente')",
+            [],
+            |row| row.get(0),
+        )?;
+        if !tem_chave_cliente {
+            conn.execute("ALTER TABLE operacoes ADD COLUMN chave_cliente TEXT", [])?;
+        }
+        conn.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS operacoes_chave_cliente
+                 ON operacoes (empresa, ambiente, tipo, chave_cliente)
+                 WHERE chave_cliente IS NOT NULL;",
         )?;
         Ok(Self { conn })
     }
@@ -337,7 +356,7 @@ impl Journal {
             .query_row(
                 "SELECT id, empresa, ambiente, tipo, chave_operacao, hash_conteudo, estado,
                         xml_preparado, xml_enviado, xml_retorno, chave_nfse, protocolo, erro,
-                        criado_em, atualizado_em
+                        criado_em, atualizado_em, chave_cliente
                  FROM operacoes
                  WHERE empresa = ?1 AND ambiente = ?2 AND tipo = ?3 AND chave_operacao = ?4",
                 params![
@@ -371,7 +390,7 @@ impl Journal {
             .query_row(
                 "SELECT id, empresa, ambiente, tipo, chave_operacao, hash_conteudo, estado,
                         xml_preparado, xml_enviado, xml_retorno, chave_nfse, protocolo, erro,
-                        criado_em, atualizado_em
+                        criado_em, atualizado_em, chave_cliente
                  FROM operacoes
                  WHERE empresa = ?1 AND ambiente = ?2 AND tipo = ?3 AND chave_operacao = ?4",
                 params![
@@ -415,6 +434,197 @@ impl Journal {
         Ok((operacao, true))
     }
 
+    /// Busca a operação pela chave de idempotência do cliente.
+    pub fn operacao_por_chave_cliente(
+        &self,
+        empresa: &Cnpj,
+        ambiente: TpAmb,
+        tipo: TipoOperacao,
+        chave_cliente: &str,
+    ) -> Result<Option<Operacao>, ErroEmissor> {
+        let linha = self
+            .conn
+            .query_row(
+                "SELECT id, empresa, ambiente, tipo, chave_operacao, hash_conteudo, estado,
+                        xml_preparado, xml_enviado, xml_retorno, chave_nfse, protocolo, erro,
+                        criado_em, atualizado_em, chave_cliente
+                 FROM operacoes
+                 WHERE empresa = ?1 AND ambiente = ?2 AND tipo = ?3 AND chave_cliente = ?4",
+                params![
+                    empresa.as_str(),
+                    ambiente_str(ambiente),
+                    tipo.as_str(),
+                    chave_cliente
+                ],
+                ler_linha,
+            )
+            .optional()?;
+        linha.transpose()
+    }
+
+    /// Cria a operação vinculada a uma chave de idempotência do cliente.
+    ///
+    /// Quando a chave já existe com o mesmo conteúdo, devolve a operação
+    /// existente. Se a operação anterior foi rejeitada (ou ficou em um estado
+    /// em que repetir é seguro) e o conteúdo mudou, a linha é repreparada para
+    /// reaproveitar o mesmo número da DPS. Se o número mudou, a chave é liberada
+    /// da linha antiga e uma nova operação é criada.
+    ///
+    /// Retorna `true` quando uma operação nova (ou repreparada) foi gravada.
+    #[allow(clippy::too_many_arguments)]
+    pub fn criar_com_chave_cliente(
+        &mut self,
+        empresa: &Cnpj,
+        ambiente: TpAmb,
+        tipo: TipoOperacao,
+        chave_operacao: &str,
+        chave_cliente: Option<&str>,
+        hash_conteudo: &str,
+        xml_preparado: &str,
+    ) -> Result<(Operacao, bool), ErroEmissor> {
+        let Some(chave_cliente) = chave_cliente else {
+            return self.criar(
+                empresa,
+                ambiente,
+                tipo,
+                chave_operacao,
+                hash_conteudo,
+                xml_preparado,
+            );
+        };
+        let tx = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if let Some(linha) = tx
+            .query_row(
+                "SELECT id, empresa, ambiente, tipo, chave_operacao, hash_conteudo, estado,
+                        xml_preparado, xml_enviado, xml_retorno, chave_nfse, protocolo, erro,
+                        criado_em, atualizado_em, chave_cliente
+                 FROM operacoes
+                 WHERE empresa = ?1 AND ambiente = ?2 AND tipo = ?3 AND chave_cliente = ?4",
+                params![
+                    empresa.as_str(),
+                    ambiente_str(ambiente),
+                    tipo.as_str(),
+                    chave_cliente
+                ],
+                ler_linha,
+            )
+            .optional()?
+        {
+            let existente = linha?;
+            if existente.chave_operacao == chave_operacao {
+                if existente.hash_conteudo == hash_conteudo {
+                    tx.commit()?;
+                    return Ok((existente, false));
+                }
+                if repetivel(&existente.estado) {
+                    tx.execute(
+                        "UPDATE operacoes
+                         SET hash_conteudo = ?2, xml_preparado = ?3, estado = 'preparada',
+                             xml_enviado = NULL, xml_retorno = NULL, protocolo = NULL,
+                             erro = NULL, atualizado_em = ?4
+                         WHERE id = ?1",
+                        params![existente.id, hash_conteudo, xml_preparado, agora()],
+                    )?;
+                    tx.commit()?;
+                    let operacao = self.operacao(existente.id)?;
+                    return Ok((operacao, true));
+                }
+                tx.commit()?;
+                return Err(ErroEmissor::ConflitoIdempotencia {
+                    chave: chave_cliente.to_owned(),
+                });
+            }
+            if !repetivel(&existente.estado) {
+                tx.commit()?;
+                return Err(ErroEmissor::ConflitoIdempotencia {
+                    chave: chave_cliente.to_owned(),
+                });
+            }
+            // O número mudou (por exemplo, após E0014): libera a chave da
+            // linha antiga, preservando a rejeição no histórico.
+            tx.execute(
+                "UPDATE operacoes SET chave_cliente = NULL, atualizado_em = ?2 WHERE id = ?1",
+                params![existente.id, agora()],
+            )?;
+        }
+        // A mesma DPS pode já existir sem chave do cliente (por exemplo, uma
+        // preparação anterior por XML). Mantém o contrato de idempotência do Id.
+        if let Some(linha) = tx
+            .query_row(
+                "SELECT id, empresa, ambiente, tipo, chave_operacao, hash_conteudo, estado,
+                        xml_preparado, xml_enviado, xml_retorno, chave_nfse, protocolo, erro,
+                        criado_em, atualizado_em, chave_cliente
+                 FROM operacoes
+                 WHERE empresa = ?1 AND ambiente = ?2 AND tipo = ?3 AND chave_operacao = ?4",
+                params![
+                    empresa.as_str(),
+                    ambiente_str(ambiente),
+                    tipo.as_str(),
+                    chave_operacao
+                ],
+                ler_linha,
+            )
+            .optional()?
+        {
+            let mut existente = linha?;
+            if existente.hash_conteudo != hash_conteudo
+                || existente
+                    .chave_cliente
+                    .as_deref()
+                    .is_some_and(|outra| outra != chave_cliente)
+            {
+                tx.commit()?;
+                return Err(ErroEmissor::ConflitoIdempotencia {
+                    chave: chave_operacao.to_owned(),
+                });
+            }
+            if existente.chave_cliente.is_none() {
+                tx.execute(
+                    "UPDATE operacoes SET chave_cliente = ?2, atualizado_em = ?3 WHERE id = ?1",
+                    params![existente.id, chave_cliente, agora()],
+                )?;
+                existente.chave_cliente = Some(chave_cliente.to_owned());
+            }
+            tx.commit()?;
+            return Ok((existente, false));
+        }
+        let agora = agora();
+        tx.execute(
+            "INSERT INTO operacoes
+             (empresa, ambiente, tipo, chave_operacao, chave_cliente, hash_conteudo, estado,
+              xml_preparado, criado_em, atualizado_em)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'preparada', ?7, ?8, ?8)",
+            params![
+                empresa.as_str(),
+                ambiente_str(ambiente),
+                tipo.as_str(),
+                chave_operacao,
+                chave_cliente,
+                hash_conteudo,
+                xml_preparado,
+                agora
+            ],
+        )?;
+        let id = tx.last_insert_rowid();
+        tx.commit()?;
+        let operacao = self.operacao(id)?;
+        Ok((operacao, true))
+    }
+
+    /// Libera a chave de idempotência do cliente de uma operação.
+    ///
+    /// Usado após E0014: a operação rejeitada continua no histórico, mas o
+    /// próximo número pode ser vinculado à mesma chave do cliente.
+    pub fn liberar_chave_cliente(&mut self, id: i64) -> Result<(), ErroEmissor> {
+        self.conn.execute(
+            "UPDATE operacoes SET chave_cliente = NULL, atualizado_em = ?2 WHERE id = ?1",
+            params![id, agora()],
+        )?;
+        Ok(())
+    }
+
     /// Lê a operação pelo identificador local.
     pub fn operacao(&self, id: i64) -> Result<Operacao, ErroEmissor> {
         let linha = self
@@ -422,7 +632,7 @@ impl Journal {
             .query_row(
                 "SELECT id, empresa, ambiente, tipo, chave_operacao, hash_conteudo, estado,
                         xml_preparado, xml_enviado, xml_retorno, chave_nfse, protocolo, erro,
-                        criado_em, atualizado_em
+                        criado_em, atualizado_em, chave_cliente
                  FROM operacoes WHERE id = ?1",
                 [id],
                 ler_linha,
@@ -537,6 +747,30 @@ impl Journal {
             |row| row.get(0),
         )?;
         u64::try_from(numero).map_err(|_| ErroEmissor::Journal("numeração negativa".to_owned()))
+    }
+
+    /// Reserva o próximo número da DPS para empresa/ambiente/série.
+    ///
+    /// A numeração da NFS-e é independente da NF-e e atômica no SQLite,
+    /// inclusive entre conexões. O chamador deve informar uma série de 1 a
+    /// 49999 (E0010).
+    pub fn reservar_numero_nfse(
+        &self,
+        empresa: &Cnpj,
+        ambiente: TpAmb,
+        serie: u32,
+    ) -> Result<u64, ErroEmissor> {
+        let numero: i64 = self.conn.query_row(
+            "INSERT INTO numeracao (empresa, ambiente, modelo, serie, ultimo)
+             VALUES (?1, ?2, 'NFSE', ?3, 1)
+             ON CONFLICT(empresa, ambiente, modelo, serie)
+             DO UPDATE SET ultimo = ultimo + 1
+             RETURNING ultimo",
+            params![empresa.as_str(), ambiente_str(ambiente), i64::from(serie)],
+            |row| row.get(0),
+        )?;
+        u64::try_from(numero)
+            .map_err(|_| ErroEmissor::Journal("numeração da NFS-e negativa".to_owned()))
     }
 
     /// Cursor de distribuição do ADN, começando em zero.
@@ -684,6 +918,7 @@ fn ler_linha(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Operacao, ErroE
         erro: row.get(12)?,
         criado_em: row.get(13)?,
         atualizado_em: row.get(14)?,
+        chave_cliente: row.get(15)?,
     }))
 }
 
@@ -692,6 +927,16 @@ fn ambiente_str(ambiente: TpAmb) -> &'static str {
         TpAmb::Producao => "producao",
         TpAmb::Homologacao => "homologacao",
     }
+}
+
+/// Estados em que corrigir o conteúdo e tentar de novo é seguro.
+fn repetivel(estado: &EstadoOperacao) -> bool {
+    matches!(
+        estado,
+        EstadoOperacao::Rejeitada
+            | EstadoOperacao::FalhaAntesDoEnvio
+            | EstadoOperacao::NaoEncontrada
+    )
 }
 
 fn agora() -> i64 {
@@ -780,6 +1025,138 @@ mod tests {
             )
             .expect_err("conflito");
         assert!(matches!(erro, ErroEmissor::ConflitoIdempotencia { .. }));
+    }
+
+    #[test]
+    fn chave_do_cliente_devolve_a_mesma_operacao() {
+        let mut journal = Journal::em_memoria().expect("journal");
+        journal.garantir_empresa(&cnpj()).expect("empresa");
+        let (primeira, nova) = journal
+            .criar_com_chave_cliente(
+                &cnpj(),
+                TpAmb::Homologacao,
+                TipoOperacao::EmitirNfse,
+                "DPS1",
+                Some("venda-1"),
+                &hash_conteudo("a"),
+                "<DPS/>",
+            )
+            .expect("cria");
+        assert!(nova);
+        let (segunda, nova) = journal
+            .criar_com_chave_cliente(
+                &cnpj(),
+                TpAmb::Homologacao,
+                TipoOperacao::EmitirNfse,
+                "DPS1",
+                Some("venda-1"),
+                &hash_conteudo("a"),
+                "<DPS/>",
+            )
+            .expect("repete");
+        assert!(!nova);
+        assert_eq!(primeira.id, segunda.id);
+        assert_eq!(segunda.chave_cliente.as_deref(), Some("venda-1"));
+
+        let erro = journal
+            .criar_com_chave_cliente(
+                &cnpj(),
+                TpAmb::Homologacao,
+                TipoOperacao::EmitirNfse,
+                "DPS1",
+                Some("venda-1"),
+                &hash_conteudo("b"),
+                "<DPS>outro</DPS>",
+            )
+            .expect_err("conflito");
+        assert!(matches!(erro, ErroEmissor::ConflitoIdempotencia { .. }));
+    }
+
+    #[test]
+    fn chave_do_cliente_vincula_dps_preparada_por_xml() {
+        let mut journal = Journal::em_memoria().expect("journal");
+        journal.garantir_empresa(&cnpj()).expect("empresa");
+        let (operacao, _) = journal
+            .criar(
+                &cnpj(),
+                TpAmb::Homologacao,
+                TipoOperacao::EmitirNfse,
+                "DPS1",
+                &hash_conteudo("a"),
+                "<DPS/>",
+            )
+            .expect("cria por XML");
+        let (vinculada, nova) = journal
+            .criar_com_chave_cliente(
+                &cnpj(),
+                TpAmb::Homologacao,
+                TipoOperacao::EmitirNfse,
+                "DPS1",
+                Some("venda-1"),
+                &hash_conteudo("a"),
+                "<DPS/>",
+            )
+            .expect("vincula");
+        assert!(!nova);
+        assert_eq!(vinculada.id, operacao.id);
+        assert_eq!(vinculada.chave_cliente.as_deref(), Some("venda-1"));
+    }
+
+    #[test]
+    fn rejeicao_permite_repreparar_o_mesmo_numero_e_migrar_a_chave() {
+        let mut journal = Journal::em_memoria().expect("journal");
+        journal.garantir_empresa(&cnpj()).expect("empresa");
+        let (operacao, _) = journal
+            .criar_com_chave_cliente(
+                &cnpj(),
+                TpAmb::Homologacao,
+                TipoOperacao::EmitirNfse,
+                "DPS1",
+                Some("venda-1"),
+                &hash_conteudo("a"),
+                "<DPS/>",
+            )
+            .expect("cria");
+        journal
+            .marcar_rejeitada(operacao.id, "E0247: e-mail inválido")
+            .expect("rejeita");
+        let (reparada, nova) = journal
+            .criar_com_chave_cliente(
+                &cnpj(),
+                TpAmb::Homologacao,
+                TipoOperacao::EmitirNfse,
+                "DPS1",
+                Some("venda-1"),
+                &hash_conteudo("b"),
+                "<DPS>corrigida</DPS>",
+            )
+            .expect("reprepara");
+        assert!(nova);
+        assert_eq!(reparada.id, operacao.id, "reaproveita a linha e o número");
+        assert_eq!(reparada.estado, EstadoOperacao::Preparada);
+        assert_eq!(reparada.hash_conteudo, hash_conteudo("b"));
+
+        journal
+            .marcar_rejeitada(reparada.id, "E0014: número já utilizado")
+            .expect("rejeita");
+        let (nova_operacao, nova) = journal
+            .criar_com_chave_cliente(
+                &cnpj(),
+                TpAmb::Homologacao,
+                TipoOperacao::EmitirNfse,
+                "DPS2",
+                Some("venda-1"),
+                &hash_conteudo("c"),
+                "<DPS>outro numero</DPS>",
+            )
+            .expect("novo número");
+        assert!(nova);
+        assert_ne!(nova_operacao.id, reparada.id);
+        assert_eq!(nova_operacao.chave_cliente.as_deref(), Some("venda-1"));
+        assert_eq!(
+            journal.operacao(reparada.id).expect("antiga").chave_cliente,
+            None
+        );
     }
 
     #[test]
@@ -932,5 +1309,37 @@ mod tests_numeracao {
         assert_eq!(unicos.len(), 20);
         assert_eq!(unicos.iter().next(), Some(&1));
         assert_eq!(unicos.iter().next_back(), Some(&20));
+    }
+
+    #[test]
+    fn numeracao_da_nfse_e_independente_por_serie_e_da_nfe() {
+        let caminho = caminho();
+        let empresa = Cnpj::parse("00000001000136").expect("CNPJ");
+        let journal = Journal::abrir(&caminho).expect("journal");
+        journal.garantir_empresa(&empresa).expect("empresa");
+        assert_eq!(
+            journal
+                .reservar_numero_nfse(&empresa, TpAmb::Homologacao, 1)
+                .expect("série 1"),
+            1
+        );
+        assert_eq!(
+            journal
+                .reservar_numero_nfse(&empresa, TpAmb::Homologacao, 1)
+                .expect("série 1"),
+            2
+        );
+        assert_eq!(
+            journal
+                .reservar_numero_nfse(&empresa, TpAmb::Homologacao, 2)
+                .expect("série 2"),
+            1
+        );
+        assert_eq!(
+            journal
+                .reservar_numero_nfe(&empresa, TpAmb::Homologacao, 1)
+                .expect("NF-e"),
+            1
+        );
     }
 }

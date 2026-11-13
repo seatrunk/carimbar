@@ -3,6 +3,8 @@
 //!
 //! # Escopo
 //!
+//! - construtor de DPS a partir de um pedido simples (`PedidoEmissao`), com
+//!   prestador reutilizável e validação de série, `totTrib` e e-mail;
 //! - modelo da DPS com os campos exigidos pelo leiaute e pelo grupo IBS/CBS;
 //! - geração e validação do `Id` da DPS e da chave da NFS-e, respeitando as
 //!   diferenças entre produção e produção restrita;
@@ -47,7 +49,7 @@
 //!         inscricao_municipal: None,
 //!         nome: None,
 //!         email: None,
-//!         regime: RegimeTributario::nao_optante(),
+//!         regime: RegimeTributario::mei(),
 //!     },
 //!     tomador: None,
 //!     intermediario: None,
@@ -92,6 +94,7 @@ mod evento;
 mod gzip;
 mod identificadores;
 mod parametros;
+mod pedido;
 mod tempo;
 
 pub use adn::{
@@ -117,4 +120,5 @@ pub use identificadores::{
 pub use parametros::{
     Aliquota, CacheParametros, ClienteParametros, ConsultaAliquotas, ParametrosConvenio,
 };
+pub use pedido::{PedidoEmissao, PrestadorConfig};
 pub use tempo::{DataFiscal, DataHoraFiscal};

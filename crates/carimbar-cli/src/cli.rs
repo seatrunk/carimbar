@@ -5,14 +5,14 @@ use crate::replay::ReplayExecutor;
 use carimbar::ResultadoNfe;
 use carimbar::nfse::{
     ChaveNfse, DataHoraFiscal, ErroNfse, EventoCancelamento, Executor, InscricaoFederal,
-    MotivoCancelamento,
+    MotivoCancelamento, PedidoEmissao,
 };
 use carimbar::transport::{ClienteMtls, ErroEnvio, ErroTransporte, Opcoes, Requisicao, Resposta};
 #[cfg(feature = "nfe-sha1")]
 use carimbar::types::ChaveAcesso;
-use carimbar::types::{Cnpj, ConfirmacaoProducao};
+use carimbar::types::{Cnpj, ConfirmacaoProducao, TpAmb};
 use carimbar::vault::{ChaveMestra, Cofre};
-use carimbar::{Emissor, ErroEmissor, Journal, ResultadoNfse};
+use carimbar::{Emissor, ErroEmissor, Journal, KillSwitch, KillSwitchAmbiente, ResultadoNfse};
 use clap::{Parser, Subcommand};
 use serde_json::{Value, json};
 use std::fmt;
@@ -197,17 +197,32 @@ enum Comando {
         #[command(subcommand)]
         acao: EmpresaAcao,
     },
-    /// Emite uma DPS em XML.
+    /// Emite uma NFS-e a partir de uma DPS em XML ou de um pedido JSON.
     Emitir {
         /// Arquivo XML da DPS.
+        #[arg(long, conflicts_with = "pedido")]
+        dps: Option<PathBuf>,
+        /// Pedido JSON com serviço, valor, tomador e dados do prestador.
+        #[arg(long, conflicts_with = "dps")]
+        pedido: Option<PathBuf>,
+        /// Configuração do prestador para `--pedido` (fallback ao bloco do JSON).
+        #[arg(long, env = "CARIMBAR_PRESTADOR")]
+        prestador: Option<PathBuf>,
+        /// Chave de idempotência do cliente (por exemplo, o id da venda).
         #[arg(long)]
-        dps: PathBuf,
+        idempotencia: Option<String>,
         /// Onde gravar o XML autorizado.
         #[arg(long)]
         xml_saida: Option<PathBuf>,
         /// Onde gravar o DANFSe.
         #[arg(long)]
         pdf_saida: Option<PathBuf>,
+    },
+    /// Confere certificado, kill switch e convênio do município.
+    Diagnostico {
+        /// Código IBGE do município para consultar o convênio.
+        #[arg(long)]
+        municipio: Option<String>,
     },
     /// Emite uma NF-e modelo 55 em XML (requer feature nfe-sha1).
     #[cfg(feature = "nfe-sha1")]
@@ -380,6 +395,9 @@ pub fn executar() -> Result<(), ErroCli> {
 
     match cli.comando {
         Comando::Empresa { acao } => executar_empresa(&config, cofre, empresa, acao),
+        Comando::Diagnostico { municipio } => {
+            executar_diagnostico(&config, cofre, empresa, municipio)
+        }
         comando => executar_fiscal(&config, cofre, empresa, comando),
     }
 }
@@ -475,17 +493,65 @@ fn executar_fiscal(
     match comando {
         Comando::Emitir {
             dps,
+            pedido,
+            prestador,
+            idempotencia,
             xml_saida,
             pdf_saida,
         } => {
-            let xml = fs::read_to_string(&dps).map_err(|erro| {
-                ErroCli::uso(format!("não foi possível ler {}: {erro}", dps.display()))
-            })?;
-            let preparada = emissor.preparar_nfse_xml(&xml)?;
-            let operacao = preparada.id();
-            match emissor.confirmar_nfse(operacao)? {
+            let resultado = if let Some(caminho) = &pedido {
+                let texto = fs::read_to_string(caminho).map_err(|erro| {
+                    ErroCli::uso(format!(
+                        "não foi possível ler {}: {erro}",
+                        caminho.display()
+                    ))
+                })?;
+                let valor: Value = serde_json::from_str(&texto).map_err(|erro| {
+                    ErroCli::uso(format!(
+                        "pedido JSON inválido em {}: {erro}",
+                        caminho.display()
+                    ))
+                })?;
+                let prestador = match &prestador {
+                    Some(caminho) => {
+                        let texto = fs::read_to_string(caminho).map_err(|erro| {
+                            ErroCli::uso(format!(
+                                "não foi possível ler {}: {erro}",
+                                caminho.display()
+                            ))
+                        })?;
+                        Some(serde_json::from_str::<Value>(&texto).map_err(|erro| {
+                            ErroCli::uso(format!(
+                                "prestador JSON inválido em {}: {erro}",
+                                caminho.display()
+                            ))
+                        })?)
+                    }
+                    None => None,
+                };
+                let mut pedido = PedidoEmissao::de_json_com_prestador(&valor, prestador.as_ref())?;
+                if let Some(idempotencia) = idempotencia.clone() {
+                    pedido.idempotencia = Some(idempotencia);
+                }
+                let preparada = emissor.preparar_pedido(&pedido)?;
+                emissor.confirmar_pedido(&pedido, preparada.id())?
+            } else if let Some(caminho) = &dps {
+                let xml = fs::read_to_string(caminho).map_err(|erro| {
+                    ErroCli::uso(format!(
+                        "não foi possível ler {}: {erro}",
+                        caminho.display()
+                    ))
+                })?;
+                let preparada = emissor.preparar_nfse_xml(&xml)?;
+                emissor.confirmar_nfse(preparada.id())?
+            } else {
+                return Err(ErroCli::uso("informe --dps ou --pedido"));
+            };
+            match resultado {
                 ResultadoNfse::Autorizada {
-                    chave, xml_nfse, ..
+                    operacao,
+                    chave,
+                    xml_nfse,
                 } => {
                     if let Some(caminho) = &xml_saida {
                         fs::write(caminho, &xml_nfse).map_err(|erro| {
@@ -510,22 +576,24 @@ fn executar_fiscal(
                             "operacao": operacao,
                             "estado": "autorizada",
                             "chave": chave.as_str(),
-                            "xml_saida": xml_saida.map(|p| p.display().to_string()),
-                            "pdf_saida": pdf_saida.map(|p| p.display().to_string()),
+                            "xml_saida": xml_saida.as_ref().map(|p| p.display().to_string()),
+                            "pdf_saida": pdf_saida.as_ref().map(|p| p.display().to_string()),
                         }),
                         &format!("NFS-e autorizada: {chave} (operação {operacao})"),
                     );
                     Ok(())
                 }
-                ResultadoNfse::Rejeitada { detalhe, .. } => {
-                    Err(ErroCli::fiscal(format!("NFS-e rejeitada: {detalhe}")))
-                }
-                ResultadoNfse::Desconhecido { detalhe, .. } => Err(ErroCli::transporte(format!(
-                    "resultado desconhecido na operação {operacao}: {detalhe}"
+                ResultadoNfse::Rejeitada {
+                    operacao, detalhe, ..
+                } => Err(ErroCli::fiscal(format!(
+                    "NFS-e rejeitada na operação {operacao}: {detalhe}"
                 ))),
-                ResultadoNfse::NaoEncontrada { detalhe, .. } => Err(ErroCli::transporte(format!(
-                    "operação {operacao} não encontrada na reconciliação: {detalhe}"
-                ))),
+                ResultadoNfse::Desconhecido { operacao, detalhe } => Err(ErroCli::transporte(
+                    format!("resultado desconhecido na operação {operacao}: {detalhe}"),
+                )),
+                ResultadoNfse::NaoEncontrada { operacao, detalhe } => Err(ErroCli::transporte(
+                    format!("operação {operacao} não encontrada na reconciliação: {detalhe}"),
+                )),
                 ResultadoNfse::Cancelada { .. } => Err(ErroCli::operacional(
                     "operação de emissão retornou cancelamento",
                 )),
@@ -794,6 +862,118 @@ fn executar_fiscal(
             }
         },
         Comando::Empresa { .. } => Err(ErroCli::operacional("comando administrativo inesperado")),
+        Comando::Diagnostico { .. } => {
+            Err(ErroCli::operacional("comando de diagnóstico inesperado"))
+        }
+    }
+}
+
+fn executar_diagnostico(
+    cli: &Config,
+    cofre: Cofre,
+    empresa: Cnpj,
+    municipio: Option<String>,
+) -> Result<(), ErroCli> {
+    let mut problemas: Vec<String> = Vec::new();
+    let certificado_id = match &cli.certificado {
+        Some(id) => Some(id.clone()),
+        None => cofre
+            .listar(&empresa)
+            .map_err(ErroCli::from)?
+            .first()
+            .map(|meta| meta.id.clone()),
+    };
+    let certificado = match &certificado_id {
+        Some(id) => match cofre.certificado(&empresa, id) {
+            Ok(certificado) => json!({
+                "id": id,
+                "titular": certificado.cnpj().as_str(),
+                "valido_de": formatar_tempo(certificado.valido_desde()),
+                "valido_ate": formatar_tempo(certificado.valido_ate()),
+            }),
+            Err(erro) => {
+                problemas.push(format!("certificado {id}: {erro}"));
+                Value::Null
+            }
+        },
+        None => {
+            problemas.push(format!("empresa {empresa} não tem certificado importado"));
+            Value::Null
+        }
+    };
+    let producao_permitida = KillSwitchAmbiente.producao_permitida();
+    let journal = Journal::abrir(&cli.journal)?;
+    let ambiente = journal
+        .ambiente_empresa(&empresa)
+        .unwrap_or(TpAmb::Homologacao);
+    if ambiente == TpAmb::Producao && !producao_permitida {
+        problemas.push("empresa em produção, mas CARIMBAR_PRODUCAO não vale 1".to_owned());
+    }
+    let (convenio, situacao_convenio) = match &municipio {
+        Some(municipio) => match criar_executor(cli, &cofre, &empresa) {
+            Ok(executor) => {
+                let emissor = Emissor::novo(cofre, journal, empresa, executor.as_ref())?;
+                match emissor.consultar_convenio(municipio, true) {
+                    Ok(convenio) => {
+                        let aderente = indicador(&convenio.aderente_ambiente_nacional)
+                            || indicador(&convenio.aderente_emissor_nacional);
+                        if !aderente {
+                            problemas.push(format!(
+                                "município {municipio} não aderente ao ambiente nacional (MEI é exceção)"
+                            ));
+                        }
+                        (
+                            json!({
+                                "municipio": municipio,
+                                "tipo_convenio": convenio.tipo_convenio,
+                                "aderente_ambiente_nacional": convenio.aderente_ambiente_nacional,
+                                "aderente_emissor_nacional": convenio.aderente_emissor_nacional,
+                                "situacao_emissao_padrao": convenio.situacao_emissao_padrao,
+                            }),
+                            "consultado".to_owned(),
+                        )
+                    }
+                    Err(erro) => {
+                        problemas.push(format!("convênio de {municipio}: {erro}"));
+                        (Value::Null, "falhou".to_owned())
+                    }
+                }
+            }
+            Err(erro) => {
+                problemas.push(format!("transporte: {erro}"));
+                (Value::Null, "não configurado".to_owned())
+            }
+        },
+        None => (Value::Null, "não consultado".to_owned()),
+    };
+    let ok = problemas.is_empty();
+    let valor = json!({
+        "ok": ok,
+        "empresa": empresa.as_str(),
+        "ambiente": match ambiente {
+            TpAmb::Producao => "producao",
+            TpAmb::Homologacao => "homologacao",
+        },
+        "certificado": certificado,
+        "kill_switch": {
+            "producao_permitida": producao_permitida,
+            "carimbar_producao": std::env::var("CARIMBAR_PRODUCAO").ok(),
+        },
+        "convenio": convenio,
+        "convenio_situacao": situacao_convenio,
+        "problemas": problemas,
+    });
+    let quantidade = valor["problemas"].as_array().map_or(0, |lista| lista.len());
+    let texto = if ok {
+        format!("diagnóstico de {empresa}: ok ({ambiente:?})")
+    } else {
+        format!("diagnóstico de {empresa}: {quantidade} problema(s)")
+    };
+    imprimir(cli.json, &valor, &texto);
+    if ok {
+        Ok(())
+    } else {
+        Err(ErroCli::operacional("diagnóstico encontrou problemas"))
     }
 }
 
@@ -909,6 +1089,13 @@ fn agora_fiscal() -> Result<String, ErroCli> {
     time::OffsetDateTime::now_utc()
         .format(&formato)
         .map_err(|erro| ErroCli::operacional(format!("data/hora: {erro}")))
+}
+
+fn indicador(valor: &str) -> bool {
+    matches!(
+        valor.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "s" | "sim" | "yes"
+    )
 }
 
 fn formatar_tempo(tempo: SystemTime) -> String {
